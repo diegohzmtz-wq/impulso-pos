@@ -15,6 +15,9 @@ export const productosCatalogoBase: Producto[] = [
     precio: 22,
     categoria: "BEBIDAS",
     activo: true,
+    modificadores: [],
+    usaVariantes: false,
+    variantes: [],
   },
   {
     id: 2,
@@ -23,6 +26,9 @@ export const productosCatalogoBase: Producto[] = [
     categoria: "COMPLEMENTOS",
     badge: "DESDE",
     activo: true,
+    modificadores: [],
+    usaVariantes: false,
+    variantes: [],
   },
   {
     id: 3,
@@ -30,6 +36,9 @@ export const productosCatalogoBase: Producto[] = [
     precio: 49,
     categoria: "COMPLEMENTOS",
     activo: true,
+    modificadores: [],
+    usaVariantes: false,
+    variantes: [],
   },
   {
     id: 4,
@@ -39,6 +48,12 @@ export const productosCatalogoBase: Producto[] = [
     descripcion: "Cebolla caramelizada, tocino y salsa BBQ",
     badge: "DESDE",
     activo: true,
+    modificadores: [],
+    usaVariantes: true,
+    variantes: [
+      { id: 1, nombre: "Sencilla", precio: 99, activo: true },
+      { id: 2, nombre: "Doble", precio: 129, activo: true },
+    ],
   },
   {
     id: 5,
@@ -46,6 +61,9 @@ export const productosCatalogoBase: Producto[] = [
     precio: 59,
     categoria: "COMPLEMENTOS",
     activo: true,
+    modificadores: [],
+    usaVariantes: false,
+    variantes: [],
   },
   {
     id: 6,
@@ -54,6 +72,9 @@ export const productosCatalogoBase: Producto[] = [
     categoria: "COMPLEMENTOS",
     badge: "DESDE",
     activo: true,
+    modificadores: [],
+    usaVariantes: false,
+    variantes: [],
   },
   {
     id: 7,
@@ -61,6 +82,12 @@ export const productosCatalogoBase: Producto[] = [
     precio: 89,
     categoria: "HAMBURGUESAS",
     activo: true,
+    modificadores: [],
+    usaVariantes: true,
+    variantes: [
+      { id: 1, nombre: "Sencilla", precio: 89, activo: true },
+      { id: 2, nombre: "Doble", precio: 119, activo: true },
+    ],
   },
   {
     id: 8,
@@ -69,6 +96,9 @@ export const productosCatalogoBase: Producto[] = [
     categoria: "COMBOS",
     badge: "COMBO",
     activo: true,
+    modificadores: [],
+    usaVariantes: false,
+    variantes: [],
   },
   {
     id: 9,
@@ -77,5 +107,8 @@ export const productosCatalogoBase: Producto[] = [
     categoria: "COMBOS",
     badge: "COMBO",
     activo: true,
+    modificadores: [],
+    usaVariantes: false,
+    variantes: [],
   },
 ];

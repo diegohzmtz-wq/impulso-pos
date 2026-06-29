@@ -42,3 +42,10 @@ export type Producto = {
   stockMinimo?: number;
   favorito?: boolean;
 };
+export type CategoriaCatalogo = {
+  id: number;
+  nombre: string;
+  activo: boolean;
+  orden: number;
+};
+export type ProductoCatalogo = Producto;

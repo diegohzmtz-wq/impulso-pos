@@ -5,6 +5,8 @@ export type Categoria =
   | "COMPLEMENTOS"
   | "BEBIDAS";
 
+export type BadgeProducto = "COMBO" | "DESDE";
+
 export type CategoriaCatalogo = {
   id: number;
   nombre: string;
@@ -37,6 +39,7 @@ export type Producto = {
   precio: number;
   costo?: number;
   imagen?: string;
+  badge?: BadgeProducto;
   activo: boolean;
   modificadores: number[];
   usaVariantes: boolean;

@@ -13,18 +13,18 @@ export default function CategoriasCatalogo({
   setCategoriaActiva,
 }: Props) {
   return (
-    <div className="flex gap-4 overflow-x-auto mb-8">
+    <div className="mb-8 flex gap-4 overflow-x-auto">
       {categoriasCatalogo.map((categoria) => (
         <button
-          key={categoria}
+          key={categoria.id}
           onClick={() => setCategoriaActiva(categoria)}
-          className={`px-7 py-4 rounded-2xl font-bold transition border whitespace-nowrap ${
-            categoriaActiva === categoria
-              ? "bg-green-600 text-white border-green-600"
-              : "bg-white border-gray-200 hover:bg-gray-50"
+          className={`whitespace-nowrap rounded-2xl border px-7 py-4 font-bold transition ${
+            categoriaActiva.id === categoria.id
+              ? "border-green-600 bg-green-600 text-white"
+              : "border-gray-200 bg-white hover:bg-gray-50"
           }`}
         >
-          {categoria}
+          {categoria.nombre}
         </button>
       ))}
     </div>

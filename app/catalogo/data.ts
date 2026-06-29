@@ -129,3 +129,9 @@ export const productos: Producto[] = [
     favorito: true,
   },
 ];
+export const categoriasCatalogo = [
+  { id: 1, nombre: "HAMBURGUESAS", activo: true, orden: 1 },
+  { id: 2, nombre: "COMBOS", activo: true, orden: 2 },
+  { id: 3, nombre: "COMPLEMENTOS", activo: true, orden: 3 },
+  { id: 4, nombre: "BEBIDAS", activo: true, orden: 4 },
+];
