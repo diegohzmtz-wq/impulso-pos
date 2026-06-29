@@ -1,0 +1,281 @@
+"use client";
+
+import { useEffect, useState } from "react";
+
+import { Categoria, Modificador, Producto } from "./types";
+import {
+  categorias as categoriasBase,
+  modificadores as modificadoresBase,
+  productos as productosBase,
+} from "./data";
+
+import TabsCatalogo from "./TabsCatalogo";
+import TablaProductos from "./TablaProductos";
+import TablaCategorias from "./TablaCategorias";
+import TablaModificadores from "./TablaModificadores";
+import ProductoModal from "./ProductoModal";
+import ModalCategoria from "./ModalCategoria";
+import ModalModificador from "./ModalModificador";
+
+type Tab = "productos" | "categorias" | "modificadores";
+
+export default function CatalogoPage() {
+  const [tab, setTab] = useState<Tab>("productos");
+
+  const [productos, setProductos] = useState<Producto[]>([]);
+  const [categorias, setCategorias] = useState<Categoria[]>([]);
+  const [modificadores, setModificadores] = useState<Modificador[]>([]);
+  const [cargado, setCargado] = useState(false);
+
+  const [modalProducto, setModalProducto] = useState(false);
+  const [modalCategoria, setModalCategoria] = useState(false);
+  const [modalModificador, setModalModificador] = useState(false);
+
+  const [productoEditando, setProductoEditando] = useState<Producto | null>(null);
+  const [categoriaEditando, setCategoriaEditando] = useState<Categoria | null>(null);
+  const [modificadorEditando, setModificadorEditando] =
+    useState<Modificador | null>(null);
+
+  useEffect(() => {
+    try {
+      const productosGuardados = localStorage.getItem("catalogo_productos");
+      const categoriasGuardadas = localStorage.getItem("catalogo_categorias");
+      const modificadoresGuardados = localStorage.getItem(
+        "catalogo_modificadores"
+      );
+
+      setProductos(
+        productosGuardados && JSON.parse(productosGuardados).length > 0
+          ? JSON.parse(productosGuardados)
+          : productosBase
+      );
+
+      setCategorias(
+        categoriasGuardadas && JSON.parse(categoriasGuardadas).length > 0
+          ? JSON.parse(categoriasGuardadas)
+          : categoriasBase
+      );
+
+      setModificadores(
+        modificadoresGuardados && JSON.parse(modificadoresGuardados).length > 0
+          ? JSON.parse(modificadoresGuardados)
+          : modificadoresBase
+      );
+    } catch {
+      setProductos(productosBase);
+      setCategorias(categoriasBase);
+      setModificadores(modificadoresBase);
+    } finally {
+      setCargado(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!cargado) return;
+    localStorage.setItem("catalogo_productos", JSON.stringify(productos));
+  }, [productos, cargado]);
+
+  useEffect(() => {
+    if (!cargado) return;
+    localStorage.setItem("catalogo_categorias", JSON.stringify(categorias));
+  }, [categorias, cargado]);
+
+  useEffect(() => {
+    if (!cargado) return;
+    localStorage.setItem(
+      "catalogo_modificadores",
+      JSON.stringify(modificadores)
+    );
+  }, [modificadores, cargado]);
+
+  const guardarProducto = (producto: Producto) => {
+    setProductos((prev) => {
+      const existe = prev.some((item) => item.id === producto.id);
+
+      if (existe) {
+        return prev.map((item) =>
+          item.id === producto.id ? producto : item
+        );
+      }
+
+      return [producto, ...prev];
+    });
+
+    setModalProducto(false);
+    setProductoEditando(null);
+  };
+
+  const guardarCategoria = (categoria: Categoria) => {
+    setCategorias((prev) => {
+      const existe = prev.some((item) => item.id === categoria.id);
+
+      if (existe) {
+        return prev.map((item) =>
+          item.id === categoria.id ? categoria : item
+        );
+      }
+
+      return [categoria, ...prev];
+    });
+
+    setModalCategoria(false);
+    setCategoriaEditando(null);
+  };
+
+  const guardarModificador = (modificador: Modificador) => {
+    setModificadores((prev) => {
+      const existe = prev.some((item) => item.id === modificador.id);
+
+      if (existe) {
+        return prev.map((item) =>
+          item.id === modificador.id ? modificador : item
+        );
+      }
+
+      return [modificador, ...prev];
+    });
+
+    setModalModificador(false);
+    setModificadorEditando(null);
+  };
+
+  const eliminarProducto = (id: number) => {
+    setProductos((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  const eliminarCategoria = (id: number) => {
+    setCategorias((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  const eliminarModificador = (id: number) => {
+    setModificadores((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  return (
+    <main className="min-h-screen bg-[#f4f6f8] px-8 py-10 text-slate-900">
+      <div className="mx-auto max-w-7xl">
+        <div className="mb-8">
+          <h1 className="text-4xl font-black tracking-tight text-slate-950">
+            Catálogo
+          </h1>
+
+          <p className="mt-2 text-base text-slate-500">
+            Administra productos, categorías y modificadores del POS
+          </p>
+        </div>
+
+        <section className="mb-8 grid grid-cols-1 gap-5 md:grid-cols-4">
+          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+            <p className="text-sm font-medium text-slate-500">Productos</p>
+            <h2 className="mt-2 text-4xl font-black text-slate-900">
+              {productos.length}
+            </h2>
+          </div>
+
+          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+            <p className="text-sm font-medium text-slate-500">Categorías</p>
+            <h2 className="mt-2 text-4xl font-black text-slate-900">
+              {categorias.length}
+            </h2>
+          </div>
+
+          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+            <p className="text-sm font-medium text-slate-500">Modificadores</p>
+            <h2 className="mt-2 text-4xl font-black text-slate-900">
+              {modificadores.length}
+            </h2>
+          </div>
+
+          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+            <p className="text-sm font-medium text-slate-500">Activos</p>
+            <h2 className="mt-2 text-4xl font-black text-emerald-600">
+              {productos.filter((producto) => producto.activo).length}
+            </h2>
+          </div>
+        </section>
+
+        <TabsCatalogo tab={tab} onChange={setTab} />
+
+        <div className="mt-8">
+          {tab === "productos" && (
+            <TablaProductos
+              productos={productos}
+              categorias={categorias}
+              onNuevo={() => {
+                setProductoEditando(null);
+                setModalProducto(true);
+              }}
+              onEditar={(producto) => {
+                setProductoEditando(producto);
+                setModalProducto(true);
+              }}
+              onEliminar={eliminarProducto}
+            />
+          )}
+
+          {tab === "categorias" && (
+            <TablaCategorias
+              categorias={categorias}
+              onNueva={() => {
+                setCategoriaEditando(null);
+                setModalCategoria(true);
+              }}
+              onEditar={(categoria) => {
+                setCategoriaEditando(categoria);
+                setModalCategoria(true);
+              }}
+              onEliminar={eliminarCategoria}
+            />
+          )}
+
+          {tab === "modificadores" && (
+            <TablaModificadores
+              modificadores={modificadores}
+              onNuevo={() => {
+                setModificadorEditando(null);
+                setModalModificador(true);
+              }}
+              onEditar={(modificador) => {
+                setModificadorEditando(modificador);
+                setModalModificador(true);
+              }}
+              onEliminar={eliminarModificador}
+            />
+          )}
+        </div>
+
+        <ProductoModal
+          abierto={modalProducto}
+          producto={productoEditando}
+          categorias={categorias}
+          modificadores={modificadores}
+          onCerrar={() => {
+            setModalProducto(false);
+            setProductoEditando(null);
+          }}
+          onGuardar={guardarProducto}
+        />
+
+        <ModalCategoria
+          abierto={modalCategoria}
+          categoria={categoriaEditando}
+          onCerrar={() => {
+            setModalCategoria(false);
+            setCategoriaEditando(null);
+          }}
+          onGuardar={guardarCategoria}
+        />
+
+        <ModalModificador
+          abierto={modalModificador}
+          modificador={modificadorEditando}
+          onCerrar={() => {
+            setModalModificador(false);
+            setModificadorEditando(null);
+          }}
+          onGuardar={guardarModificador}
+        />
+      </div>
+    </main>
+  );
+}
