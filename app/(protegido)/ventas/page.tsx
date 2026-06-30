@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import HeaderVentas from "./HeaderVentas";
 import Categorias from "./categorias";
 import ProductoGrid from "./ProductoGrid";
@@ -110,6 +111,7 @@ const descontarInventarioPorReceta = (carrito: ItemTicket[]) => {
 
   carrito.forEach((item) => {
     const cantidadVendida = Number(item.cantidad || 1);
+
     const receta = recetas.find(
       (r) => Number(r.productoId) === Number(item.id)
     );
@@ -124,9 +126,10 @@ const descontarInventarioPorReceta = (carrito: ItemTicket[]) => {
       );
 
       const ingredientesReceta =
-  (recetaVariante?.ingredientes?.length || 0) > 0
-    ? recetaVariante?.ingredientes || []
-    : receta.ingredientesBase || [];
+        (recetaVariante?.ingredientes?.length || 0) > 0
+          ? recetaVariante?.ingredientes || []
+          : receta.ingredientesBase || [];
+
       ingredientesReceta.forEach((ing) => {
         agregarDescuento(
           descuentosPorIngrediente,
@@ -220,6 +223,9 @@ const descontarInventarioPorReceta = (carrito: ItemTicket[]) => {
 };
 
 export default function VentasPage() {
+  const router = useRouter();
+  const [cargandoSesion, setCargandoSesion] = useState(true);
+
   const [productosVenta, setProductosVenta] = useState<Producto[]>([]);
   const [modificadoresCatalogo, setModificadoresCatalogo] = useState<
     ModificadorCatalogo[]
@@ -235,8 +241,21 @@ export default function VentasPage() {
   const [pagoCon, setPagoCon] = useState("");
 
   useEffect(() => {
-    cargarCatalogo();
-  }, []);
+    const sesion = localStorage.getItem("usuario_sesion");
+
+    if (!sesion) {
+      router.replace("/login");
+      return;
+    }
+
+    setCargandoSesion(false);
+  }, [router]);
+
+  useEffect(() => {
+    if (!cargandoSesion) {
+      cargarCatalogo();
+    }
+  }, [cargandoSesion]);
 
   const cargarCatalogo = () => {
     try {
@@ -409,6 +428,13 @@ export default function VentasPage() {
 
   const cobrar = () => {
     const turnoActivo = obtenerTurnoActivo();
+    const sesion = JSON.parse(localStorage.getItem("usuario_sesion") || "null");
+
+    if (!sesion) {
+      alert("Tu sesión terminó. Inicia sesión nuevamente.");
+      router.replace("/login");
+      return;
+    }
 
     if (!turnoActivo) {
       alert("Debes abrir turno antes de cobrar.");
@@ -434,7 +460,9 @@ export default function VentasPage() {
     const venta = {
       id: Date.now(),
       turnoId: turnoActivo.id,
-      cajero: turnoActivo.cajero || "Cajero",
+      cajero: sesion.nombre || turnoActivo.cajero || "Cajero",
+      cajeroRol: sesion.rol || "Cajero",
+      cajeroUsuario: sesion.usuario || "",
       fecha: ahora.toLocaleString("es-MX"),
       fechaISO: ahora.toISOString(),
       fechaDia: ahora.toISOString().slice(0, 10),
@@ -469,6 +497,17 @@ export default function VentasPage() {
     alert("Venta cobrada correctamente");
     limpiar();
   };
+
+  if (cargandoSesion) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#F3F8F2] text-gray-900">
+        <div className="rounded-3xl bg-white px-8 py-6 text-center shadow-xl ring-1 ring-gray-200">
+          <div className="text-4xl">🔐</div>
+          <p className="mt-3 text-lg font-black">Verificando sesión...</p>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-screen w-full overflow-x-hidden bg-[#F3F8F2] text-gray-900">

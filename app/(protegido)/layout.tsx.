@@ -1,0 +1,11 @@
+"use client";
+
+import ProtegerRuta from "@/components/ProtegerRuta";
+
+export default function LayoutProtegido({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return <ProtegerRuta>{children}</ProtegerRuta>;
+}
