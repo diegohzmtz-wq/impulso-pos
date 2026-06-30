@@ -5,7 +5,7 @@ export type Categoria = {
   orden: number;
 };
 
-export type ModificadorTipo = "Agregar" | "Quitar" | "Nota";
+export type ModificadorTipo = "Agregar" | "Quitar" | "Nota" | "Opción";
 
 export type Modificador = {
   id: number;
@@ -14,6 +14,9 @@ export type Modificador = {
   precioExtra: number;
   activo: boolean;
   orden?: number;
+
+  ingredienteId?: number;
+  cantidadInventario?: number;
 };
 
 export type VarianteProducto = {
@@ -42,10 +45,6 @@ export type Producto = {
   stockMinimo?: number;
   favorito?: boolean;
 };
-export type CategoriaCatalogo = {
-  id: number;
-  nombre: string;
-  activo: boolean;
-  orden: number;
-};
+
+export type CategoriaCatalogo = Categoria;
 export type ProductoCatalogo = Producto;

@@ -3,10 +3,19 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
+type ModificadorTicket = {
+  nombre?: string;
+  precioExtra?: number;
+  tipo?: string;
+};
+
 type ProductoTicket = {
   nombre?: string;
   precio?: number;
   cantidad?: number;
+  modificadoresSeleccionados?: ModificadorTicket[];
+  bebidaSeleccionada?: string;
+  notaCocina?: string;
 };
 
 type Venta = {
@@ -15,10 +24,18 @@ type Venta = {
   fechaISO?: string;
   fechaDia?: string;
   total: number;
+  subtotal?: number;
   metodoPago?: string;
   telefono?: string;
   estado?: string;
   productos?: ProductoTicket[];
+};
+
+type Negocio = {
+  nombre?: string;
+  telefono?: string;
+  direccion?: string;
+  whatsapp?: string;
 };
 
 const obtenerFechaDia = (venta: Venta) => {
@@ -46,6 +63,267 @@ const formatearFecha = (venta: Venta) => {
     dateStyle: "medium",
     timeStyle: "short",
   });
+};
+
+const cargarNegocio = (): Negocio => {
+  try {
+    const negocio = JSON.parse(localStorage.getItem("negocio") || "null");
+    return negocio || {};
+  } catch {
+    return {};
+  }
+};
+
+const imprimirTicket = (venta: Venta) => {
+  const negocio = cargarNegocio();
+  const productos = venta.productos || [];
+
+  const filasProductos = productos
+    .map((producto) => {
+      const cantidad = Number(producto.cantidad || 1);
+      const precio = Number(producto.precio || 0);
+      const subtotal = cantidad * precio;
+
+      const modificadores = producto.modificadoresSeleccionados || [];
+
+      const modsHtml = modificadores
+        .map(
+          (mod) => `
+          <div class="modificador">
+            ${mod.tipo === "Quitar" ? "−" : "+"} ${mod.nombre || "Modificador"}
+            ${
+              Number(mod.precioExtra || 0) > 0
+                ? `<span>$${Number(mod.precioExtra || 0).toFixed(2)}</span>`
+                : ""
+            }
+          </div>
+        `
+        )
+        .join("");
+
+      return `
+        <div class="producto">
+          <div class="producto-linea">
+            <span>${cantidad}x ${producto.nombre || "Producto"}</span>
+            <strong>$${subtotal.toFixed(2)}</strong>
+          </div>
+
+          <div class="precio-unitario">
+            $${precio.toFixed(2)} c/u
+          </div>
+
+          ${modsHtml}
+
+          ${
+            producto.bebidaSeleccionada
+              ? `<div class="modificador">Bebida: ${producto.bebidaSeleccionada}</div>`
+              : ""
+          }
+
+          ${
+            producto.notaCocina
+              ? `<div class="nota">Nota: ${producto.notaCocina}</div>`
+              : ""
+          }
+        </div>
+      `;
+    })
+    .join("");
+
+  const html = `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="UTF-8" />
+        <title>Ticket #${venta.id}</title>
+        <style>
+          @page {
+            size: 80mm auto;
+            margin: 0;
+          }
+
+          body {
+            margin: 0;
+            padding: 0;
+            background: white;
+            font-family: Arial, sans-serif;
+            color: #111;
+          }
+
+          .ticket {
+            width: 72mm;
+            padding: 10px;
+            margin: 0 auto;
+          }
+
+          .center {
+            text-align: center;
+          }
+
+          .negocio {
+            font-size: 18px;
+            font-weight: 900;
+            text-transform: uppercase;
+          }
+
+          .small {
+            font-size: 11px;
+            color: #333;
+          }
+
+          .linea {
+            border-top: 1px dashed #000;
+            margin: 10px 0;
+          }
+
+          .titulo {
+            font-size: 14px;
+            font-weight: 900;
+            text-align: center;
+            margin-top: 8px;
+          }
+
+          .producto {
+            margin-bottom: 9px;
+          }
+
+          .producto-linea {
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;
+            font-size: 13px;
+            font-weight: 700;
+          }
+
+          .precio-unitario {
+            font-size: 11px;
+            color: #444;
+            margin-top: 2px;
+          }
+
+          .modificador {
+            display: flex;
+            justify-content: space-between;
+            font-size: 11px;
+            padding-left: 10px;
+            color: #333;
+            margin-top: 2px;
+          }
+
+          .nota {
+            font-size: 11px;
+            padding-left: 10px;
+            margin-top: 2px;
+            font-weight: 700;
+          }
+
+          .total {
+            display: flex;
+            justify-content: space-between;
+            font-size: 18px;
+            font-weight: 900;
+          }
+
+          .pago {
+            display: flex;
+            justify-content: space-between;
+            font-size: 13px;
+            margin-top: 4px;
+          }
+
+          .gracias {
+            margin-top: 14px;
+            text-align: center;
+            font-size: 12px;
+            font-weight: 800;
+          }
+
+          .footer {
+            margin-top: 6px;
+            text-align: center;
+            font-size: 10px;
+          }
+
+          @media print {
+            body {
+              width: 80mm;
+            }
+
+            .ticket {
+              width: 72mm;
+            }
+          }
+        </style>
+      </head>
+
+      <body>
+        <div class="ticket">
+          <div class="center">
+            <div class="negocio">${negocio.nombre || "IMPULSE POS"}</div>
+            ${
+              negocio.direccion
+                ? `<div class="small">${negocio.direccion}</div>`
+                : ""
+            }
+            ${
+              negocio.telefono
+                ? `<div class="small">Tel: ${negocio.telefono}</div>`
+                : ""
+            }
+          </div>
+
+          <div class="linea"></div>
+
+          <div class="titulo">TICKET #${venta.id}</div>
+          <div class="center small">${formatearFecha(venta)}</div>
+
+          <div class="linea"></div>
+
+          ${filasProductos}
+
+          <div class="linea"></div>
+
+          <div class="total">
+            <span>TOTAL</span>
+            <span>$${Number(venta.total || 0).toFixed(2)}</span>
+          </div>
+
+          <div class="pago">
+            <span>Método de pago</span>
+            <strong>${venta.metodoPago || "Efectivo"}</strong>
+          </div>
+
+          ${
+            venta.telefono
+              ? `<div class="pago"><span>Cliente</span><strong>${venta.telefono}</strong></div>`
+              : ""
+          }
+
+          <div class="linea"></div>
+
+          <div class="gracias">¡Gracias por su compra!</div>
+          <div class="footer">Sistema Impulse POS</div>
+        </div>
+
+        <script>
+          window.onload = function() {
+            window.print();
+          };
+        </script>
+      </body>
+    </html>
+  `;
+
+  const ventana = window.open("", "_blank", "width=420,height=700");
+
+  if (!ventana) {
+    alert("Permite ventanas emergentes para imprimir el ticket.");
+    return;
+  }
+
+  ventana.document.open();
+  ventana.document.write(html);
+  ventana.document.close();
 };
 
 export default function TicketsPage() {
@@ -134,7 +412,7 @@ export default function TicketsPage() {
           </p>
           <h1 className="text-4xl font-black">🎫 Tickets</h1>
           <p className="mt-1 font-semibold text-gray-500">
-            Consulta tickets por fecha, producto, método de pago o cliente.
+            Consulta, reimprime y administra tickets.
           </p>
         </div>
 
@@ -273,13 +551,31 @@ export default function TicketsPage() {
                         ${Number(venta.total || 0).toFixed(2)}
                       </p>
 
-                      <button
-                        type="button"
-                        onClick={() => eliminarTicket(venta.id)}
-                        className="mt-3 rounded-xl bg-red-50 px-4 py-2 text-sm font-bold text-red-600 hover:bg-red-100"
-                      >
-                        Eliminar
-                      </button>
+                      <div className="mt-4 flex flex-wrap gap-2 md:justify-end">
+                        <button
+                          type="button"
+                          onClick={() => imprimirTicket(venta)}
+                          className="rounded-xl bg-green-600 px-4 py-2 text-sm font-bold text-white hover:bg-green-700"
+                        >
+                          🖨️ Imprimir
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => imprimirTicket(venta)}
+                          className="rounded-xl bg-gray-100 px-4 py-2 text-sm font-bold text-gray-700 hover:bg-gray-200"
+                        >
+                          🔁 Reimprimir
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => eliminarTicket(venta.id)}
+                          className="rounded-xl bg-red-50 px-4 py-2 text-sm font-bold text-red-600 hover:bg-red-100"
+                        >
+                          Eliminar
+                        </button>
+                      </div>
                     </div>
                   </div>
 
@@ -287,31 +583,61 @@ export default function TicketsPage() {
                     {productos.length === 0 ? (
                       <p className="text-gray-500">Sin productos registrados</p>
                     ) : (
-                      productos.map((producto, index) => (
-                        <div
-                          key={`${venta.id}-${index}`}
-                          className="flex justify-between gap-4 rounded-2xl bg-gray-50 px-4 py-3"
-                        >
-                          <div>
-                            <p className="font-bold">
-                              {producto.cantidad || 1}x{" "}
-                              {producto.nombre || "Producto"}
-                            </p>
+                      productos.map((producto, index) => {
+                        const modificadores =
+                          producto.modificadoresSeleccionados || [];
 
-                            <p className="text-sm text-gray-500">
-                              ${Number(producto.precio || 0).toFixed(2)} c/u
-                            </p>
+                        return (
+                          <div
+                            key={`${venta.id}-${index}`}
+                            className="rounded-2xl bg-gray-50 px-4 py-3"
+                          >
+                            <div className="flex justify-between gap-4">
+                              <div>
+                                <p className="font-bold">
+                                  {producto.cantidad || 1}x{" "}
+                                  {producto.nombre || "Producto"}
+                                </p>
+
+                                <p className="text-sm text-gray-500">
+                                  ${Number(producto.precio || 0).toFixed(2)} c/u
+                                </p>
+                              </div>
+
+                              <p className="font-black">
+                                $
+                                {(
+                                  Number(producto.precio || 0) *
+                                  Number(producto.cantidad || 1)
+                                ).toFixed(2)}
+                              </p>
+                            </div>
+
+                            {modificadores.length > 0 && (
+                              <div className="mt-2 space-y-1 pl-4 text-sm font-semibold text-gray-500">
+                                {modificadores.map((mod, i) => (
+                                  <p key={`${venta.id}-${index}-mod-${i}`}>
+                                    {mod.tipo === "Quitar" ? "−" : "+"}{" "}
+                                    {mod.nombre}
+                                  </p>
+                                ))}
+                              </div>
+                            )}
+
+                            {producto.bebidaSeleccionada && (
+                              <p className="mt-1 pl-4 text-sm font-semibold text-gray-500">
+                                Bebida: {producto.bebidaSeleccionada}
+                              </p>
+                            )}
+
+                            {producto.notaCocina && (
+                              <p className="mt-1 pl-4 text-sm font-bold text-gray-600">
+                                Nota: {producto.notaCocina}
+                              </p>
+                            )}
                           </div>
-
-                          <p className="font-black">
-                            $
-                            {(
-                              Number(producto.precio || 0) *
-                              Number(producto.cantidad || 1)
-                            ).toFixed(2)}
-                          </p>
-                        </div>
-                      ))
+                        );
+                      })
                     )}
                   </div>
                 </div>

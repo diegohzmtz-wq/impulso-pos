@@ -3,6 +3,13 @@
 import { useEffect, useState } from "react";
 import { Modificador, ModificadorTipo } from "./types";
 
+type IngredienteInventario = {
+  id: number;
+  nombre: string;
+  unidad: string;
+  stock: number;
+};
+
 type Props = {
   abierto: boolean;
   modificador: Modificador | null;
@@ -19,17 +26,28 @@ export default function ModalModificador({
   const [nombre, setNombre] = useState("");
   const [tipo, setTipo] = useState<ModificadorTipo>("Agregar");
   const [precioExtra, setPrecioExtra] = useState("");
+  const [ingredientes, setIngredientes] = useState<IngredienteInventario[]>([]);
+  const [ingredienteId, setIngredienteId] = useState("");
+  const [cantidadInventario, setCantidadInventario] = useState("1");
 
   useEffect(() => {
     if (!abierto) return;
 
+    const ingredientesGuardados = JSON.parse(
+      localStorage.getItem("ingredientes_inventario") || "[]"
+    );
+
+    setIngredientes(
+      Array.isArray(ingredientesGuardados) ? ingredientesGuardados : []
+    );
+
     setNombre(modificador?.nombre || "");
     setTipo(modificador?.tipo || "Agregar");
-    setPrecioExtra(
-      modificador?.precioExtra !== undefined
-        ? String(modificador.precioExtra)
-        : "0"
+    setPrecioExtra(String(modificador?.precioExtra ?? 0));
+    setIngredienteId(
+      modificador?.ingredienteId ? String(modificador.ingredienteId) : ""
     );
+    setCantidadInventario(String(modificador?.cantidadInventario ?? 1));
   }, [abierto, modificador]);
 
   if (!abierto) return null;
@@ -40,12 +58,21 @@ export default function ModalModificador({
       return;
     }
 
+    const usaInventario = tipo === "Agregar" || tipo === "Quitar";
+
     onGuardar({
       id: modificador?.id || Date.now(),
       nombre: nombre.trim(),
       tipo,
       precioExtra: Number(precioExtra || 0),
       activo: modificador?.activo ?? true,
+      orden: modificador?.orden,
+
+      ingredienteId:
+        usaInventario && ingredienteId ? Number(ingredienteId) : undefined,
+
+      cantidadInventario:
+        usaInventario && ingredienteId ? Number(cantidadInventario || 1) : 0,
     });
   };
 
@@ -58,13 +85,14 @@ export default function ModalModificador({
               {modificador ? "Editar Modificador" : "Nuevo Modificador"}
             </h2>
             <p className="mt-1 text-sm text-slate-500">
-              Agrega extras, notas u opciones para tus productos.
+              Conecta extras o quitar ingredientes con inventario.
             </p>
           </div>
 
           <button
+            type="button"
             onClick={onCerrar}
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-500 transition hover:bg-slate-200 hover:text-slate-900"
+            className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200"
           >
             ✕
           </button>
@@ -78,7 +106,7 @@ export default function ModalModificador({
             <input
               value={nombre}
               onChange={(e) => setNombre(e.target.value)}
-              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-slate-900 outline-none focus:border-emerald-500"
               placeholder="Ej. Queso extra"
             />
           </div>
@@ -90,7 +118,7 @@ export default function ModalModificador({
             <select
               value={tipo}
               onChange={(e) => setTipo(e.target.value as ModificadorTipo)}
-              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-slate-900 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-slate-900 outline-none focus:border-emerald-500"
             >
               <option value="Agregar">Agregar</option>
               <option value="Quitar">Quitar</option>
@@ -108,23 +136,64 @@ export default function ModalModificador({
               min="0"
               value={precioExtra}
               onChange={(e) => setPrecioExtra(e.target.value)}
-              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-slate-900 outline-none focus:border-emerald-500"
               placeholder="0"
             />
           </div>
+
+          {(tipo === "Agregar" || tipo === "Quitar") && (
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+              <label className="mb-2 block text-sm font-black text-emerald-900">
+                Ingrediente conectado
+              </label>
+
+              <select
+                value={ingredienteId}
+                onChange={(e) => setIngredienteId(e.target.value)}
+                className="w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-slate-900 outline-none focus:border-emerald-500"
+              >
+                <option value="">No descontar inventario</option>
+                {ingredientes.map((ing) => (
+                  <option key={ing.id} value={ing.id}>
+                    {ing.nombre} — Stock: {ing.stock} {ing.unidad}
+                  </option>
+                ))}
+              </select>
+
+              <label className="mb-2 mt-4 block text-sm font-black text-emerald-900">
+                Cantidad
+              </label>
+
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={cantidadInventario}
+                onChange={(e) => setCantidadInventario(e.target.value)}
+                className="w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-slate-900 outline-none focus:border-emerald-500"
+                placeholder="1"
+              />
+
+              <p className="mt-3 text-xs font-bold text-emerald-700">
+                Agregar descuenta extra. Quitar evita descontar ese ingrediente.
+              </p>
+            </div>
+          )}
         </div>
 
         <div className="mt-7 flex justify-end gap-3">
           <button
+            type="button"
             onClick={onCerrar}
-            className="rounded-2xl bg-slate-200 px-6 py-3 font-bold text-slate-700 transition hover:bg-slate-300"
+            className="rounded-2xl bg-slate-200 px-6 py-3 font-bold text-slate-700 hover:bg-slate-300"
           >
             Cancelar
           </button>
 
           <button
+            type="button"
             onClick={guardar}
-            className="rounded-2xl bg-emerald-600 px-7 py-3 font-bold text-white shadow-lg shadow-emerald-600/20 transition hover:bg-emerald-700"
+            className="rounded-2xl bg-emerald-600 px-7 py-3 font-bold text-white hover:bg-emerald-700"
           >
             Guardar
           </button>

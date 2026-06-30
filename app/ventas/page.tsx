@@ -30,6 +30,23 @@ type TurnoActivo = {
   cajero?: string;
 };
 
+type RecetaIngrediente = {
+  ingredienteId: number;
+  cantidad: number;
+};
+
+type RecetaProducto = {
+  id: number;
+  productoId: number;
+  nombreProducto: string;
+  ingredientesBase: RecetaIngrediente[];
+  variantes: {
+    nombreVariante: string;
+    ingredientes: RecetaIngrediente[];
+  }[];
+  activo: boolean;
+};
+
 const normalizarCategoria = (nombre?: string): Categoria => {
   const valor = String(nombre || "").toUpperCase();
 
@@ -55,9 +72,36 @@ const obtenerTurnoActivo = (): TurnoActivo | null => {
   }
 };
 
+const agregarDescuento = (
+  descuentos: Record<number, number>,
+  ingredienteId: number,
+  cantidad: number
+) => {
+  if (!ingredienteId || cantidad <= 0) return;
+
+  descuentos[ingredienteId] = (descuentos[ingredienteId] || 0) + cantidad;
+};
+
+const quitarDescuento = (
+  descuentos: Record<number, number>,
+  ingredienteId: number,
+  cantidad: number
+) => {
+  if (!ingredienteId || cantidad <= 0) return;
+
+  descuentos[ingredienteId] = Math.max(
+    0,
+    (descuentos[ingredienteId] || 0) - cantidad
+  );
+};
+
 const descontarInventarioPorReceta = (carrito: ItemTicket[]) => {
   const ingredientes = JSON.parse(
     localStorage.getItem("ingredientes_inventario") || "[]"
+  );
+
+  const recetas: RecetaProducto[] = JSON.parse(
+    localStorage.getItem("recetas_productos") || "[]"
   );
 
   if (!Array.isArray(ingredientes)) return;
@@ -66,45 +110,97 @@ const descontarInventarioPorReceta = (carrito: ItemTicket[]) => {
 
   carrito.forEach((item) => {
     const cantidadVendida = Number(item.cantidad || 1);
+    const receta = recetas.find(
+      (r) => Number(r.productoId) === Number(item.id)
+    );
 
-    const texto = `${item.nombre || ""} ${
-      item.varianteSeleccionada?.nombre || ""
-    }`.toLowerCase();
+    if (receta) {
+      const nombreVariante = item.varianteSeleccionada?.nombre || "BASE";
 
-    const esHamburguesa =
-      texto.includes("hamburguesa") ||
-      texto.includes("burger") ||
-      item.categoria === "HAMBURGUESAS" ||
-      item.categoria === "COMBOS";
+      const recetaVariante = receta.variantes?.find(
+        (v) =>
+          String(v.nombreVariante).toLowerCase() ===
+          String(nombreVariante).toLowerCase()
+      );
 
-    if (!esHamburguesa) return;
+      const ingredientesReceta =
+  (recetaVariante?.ingredientes?.length || 0) > 0
+    ? recetaVariante?.ingredientes || []
+    : receta.ingredientesBase || [];
+      ingredientesReceta.forEach((ing) => {
+        agregarDescuento(
+          descuentosPorIngrediente,
+          Number(ing.ingredienteId),
+          Number(ing.cantidad || 0) * cantidadVendida
+        );
+      });
+    } else {
+      const texto = `${item.nombre || ""} ${
+        item.varianteSeleccionada?.nombre || ""
+      }`.toLowerCase();
 
-    const esDoble = texto.includes("doble");
-    const esCombo = texto.includes("combo") || item.categoria === "COMBOS";
+      const esHamburguesa =
+        texto.includes("hamburguesa") ||
+        texto.includes("burger") ||
+        item.categoria === "HAMBURGUESAS" ||
+        item.categoria === "COMBOS";
 
-    const carne = esDoble ? 2 : 1;
-    const queso = esDoble ? 2 : 1;
+      if (esHamburguesa) {
+        const esDoble = texto.includes("doble");
+        const esCombo = texto.includes("combo") || item.categoria === "COMBOS";
 
-    const ingredientesADescontar = [
-      { ingredienteId: 1, cantidad: 1 },
-      { ingredienteId: 2, cantidad: carne },
-      { ingredienteId: 3, cantidad: queso },
-      { ingredienteId: 6, cantidad: 20 },
-      { ingredienteId: 7, cantidad: 20 },
-      { ingredienteId: 8, cantidad: 10 },
-      ...(esCombo
-        ? [
-            { ingredienteId: 9, cantidad: 150 },
-            { ingredienteId: 10, cantidad: 1 },
-          ]
-        : []),
-    ];
+        const carne = esDoble ? 2 : 1;
+        const queso = esDoble ? 2 : 1;
 
-    ingredientesADescontar.forEach((ing) => {
-      const cantidad = ing.cantidad * cantidadVendida;
+        const ingredientesFallback = [
+          { ingredienteId: 1, cantidad: 1 },
+          { ingredienteId: 2, cantidad: carne },
+          { ingredienteId: 3, cantidad: queso },
+          { ingredienteId: 6, cantidad: 20 },
+          { ingredienteId: 7, cantidad: 20 },
+          { ingredienteId: 8, cantidad: 10 },
+          ...(esCombo
+            ? [
+                { ingredienteId: 9, cantidad: 150 },
+                { ingredienteId: 10, cantidad: 1 },
+              ]
+            : []),
+        ];
 
-      descuentosPorIngrediente[ing.ingredienteId] =
-        (descuentosPorIngrediente[ing.ingredienteId] || 0) + cantidad;
+        ingredientesFallback.forEach((ing) => {
+          agregarDescuento(
+            descuentosPorIngrediente,
+            ing.ingredienteId,
+            ing.cantidad * cantidadVendida
+          );
+        });
+      }
+    }
+
+    const modificadores = item.modificadoresSeleccionados || [];
+
+    modificadores.forEach((modificador) => {
+      const ingredienteId = Number(modificador.ingredienteId || 0);
+      const cantidadInventario =
+        Number(modificador.cantidadInventario || 0) * cantidadVendida;
+
+      if (!ingredienteId || cantidadInventario <= 0) return;
+
+      if (modificador.tipo === "Agregar" || modificador.tipo === "Opción") {
+        agregarDescuento(
+          descuentosPorIngrediente,
+          ingredienteId,
+          cantidadInventario
+        );
+      }
+
+      if (modificador.tipo === "Quitar") {
+        quitarDescuento(
+          descuentosPorIngrediente,
+          ingredienteId,
+          cantidadInventario
+        );
+      }
     });
   });
 
@@ -218,8 +314,7 @@ export default function VentasPage() {
       );
     }
   };
-
-  const productosFiltrados = useMemo(() => {
+    const productosFiltrados = useMemo(() => {
     const texto = busqueda.trim().toLowerCase();
 
     return productosVenta.filter((producto) => {

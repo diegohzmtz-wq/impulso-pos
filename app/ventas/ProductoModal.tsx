@@ -43,7 +43,7 @@ export default function ProductoModal({
     return modificadoresCatalogo
       .filter((modificador) => producto.modificadores.includes(modificador.id))
       .filter((modificador) => modificador.activo !== false)
-      .sort((a, b) => a.orden - b.orden);
+      .sort((a, b) => Number(a.orden ?? 9999) - Number(b.orden ?? 9999));
   }, [producto, modificadoresCatalogo]);
 
   const [cantidad, setCantidad] = useState(1);
@@ -76,6 +76,8 @@ export default function ProductoModal({
       nombre: modificador.nombre,
       tipo: modificador.tipo,
       precioExtra: Number(modificador.precioExtra || 0),
+      ingredienteId: modificador.ingredienteId,
+      cantidadInventario: Number(modificador.cantidadInventario || 0),
     };
 
     setMods((actual) =>

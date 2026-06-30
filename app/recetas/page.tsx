@@ -2,28 +2,39 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { ingredientesBase, recetasBase } from "../inventario/data";
+import { productos as productosCatalogoBase } from "../catalogo/data";
 import {
   IngredienteInventario,
   RecetaIngrediente,
   RecetaProducto,
 } from "../inventario/types";
 
+type VarianteProducto = {
+  id: number;
+  nombre: string;
+  precio: number;
+  activo?: boolean;
+};
+
 type ProductoCatalogo = {
   id: number;
   nombre: string;
   activo?: boolean;
-  variantes?: {
-    id: number;
-    nombre: string;
-    precio: number;
-    activo?: boolean;
-  }[];
+  usaVariantes?: boolean;
+  variantes?: VarianteProducto[];
 };
 
 type IngredienteForm = RecetaIngrediente & {
   nombre: string;
   unidad: string;
 };
+
+const variantesDefault: VarianteProducto[] = [
+  { id: 1, nombre: "Sencilla", precio: 0, activo: true },
+  { id: 2, nombre: "Doble", precio: 0, activo: true },
+  { id: 3, nombre: "Combo Sencillo", precio: 0, activo: true },
+  { id: 4, nombre: "Combo Doble", precio: 0, activo: true },
+];
 
 export default function RecetasPage() {
   const [ingredientes, setIngredientes] = useState<IngredienteInventario[]>([]);
@@ -35,40 +46,61 @@ export default function RecetasPage() {
   const [seleccionados, setSeleccionados] = useState<IngredienteForm[]>([]);
 
   useEffect(() => {
-    const ingredientesGuardados = JSON.parse(
-      localStorage.getItem("ingredientes_inventario") || "null"
-    );
-
-    const productosGuardados = JSON.parse(
-      localStorage.getItem("catalogo_productos") || "[]"
-    );
-
-    const recetasGuardadas = JSON.parse(
-      localStorage.getItem("recetas_productos") || "null"
-    );
-
-    if (Array.isArray(ingredientesGuardados)) {
-      setIngredientes(ingredientesGuardados);
-    } else {
-      setIngredientes(ingredientesBase);
-      localStorage.setItem(
-        "ingredientes_inventario",
-        JSON.stringify(ingredientesBase)
+    const cargar = () => {
+      const ingredientesGuardados = JSON.parse(
+        localStorage.getItem("ingredientes_inventario") || "null"
       );
-    }
 
-    setProductos(
-      Array.isArray(productosGuardados)
-        ? productosGuardados.filter((p) => p.activo !== false)
-        : []
-    );
+      const productosGuardados = JSON.parse(
+        localStorage.getItem("catalogo_productos") ||
+          localStorage.getItem("productos") ||
+          "null"
+      );
 
-    if (Array.isArray(recetasGuardadas)) {
-      setRecetas(recetasGuardadas);
-    } else {
-      setRecetas(recetasBase);
-      localStorage.setItem("recetas_productos", JSON.stringify(recetasBase));
-    }
+      const recetasGuardadas = JSON.parse(
+        localStorage.getItem("recetas_productos") || "null"
+      );
+
+      if (Array.isArray(ingredientesGuardados)) {
+        setIngredientes(ingredientesGuardados);
+      } else {
+        setIngredientes(ingredientesBase);
+        localStorage.setItem(
+          "ingredientes_inventario",
+          JSON.stringify(ingredientesBase)
+        );
+      }
+
+      const productosFinales = Array.isArray(productosGuardados)
+        ? productosGuardados
+        : productosCatalogoBase;
+
+      setProductos(
+        productosFinales
+          .filter((p: ProductoCatalogo) => p.activo !== false)
+          .map((p: ProductoCatalogo) => ({
+            ...p,
+            variantes:
+              p.usaVariantes === false
+                ? []
+                : p.variantes && p.variantes.length > 0
+                ? p.variantes
+                : variantesDefault,
+          }))
+      );
+
+      if (Array.isArray(recetasGuardadas)) {
+        setRecetas(recetasGuardadas);
+      } else {
+        setRecetas(recetasBase);
+        localStorage.setItem("recetas_productos", JSON.stringify(recetasBase));
+      }
+    };
+
+    cargar();
+
+    window.addEventListener("focus", cargar);
+    return () => window.removeEventListener("focus", cargar);
   }, []);
 
   const productoSeleccionado = useMemo(() => {
@@ -79,8 +111,18 @@ export default function RecetasPage() {
     return recetas.find((r) => String(r.productoId) === productoId);
   }, [recetas, productoId]);
 
-  const variantesProducto =
-    productoSeleccionado?.variantes?.filter((v) => v.activo !== false) || [];
+  const variantesProducto = useMemo(() => {
+    if (!productoSeleccionado) return [];
+
+    if (
+      productoSeleccionado.variantes &&
+      productoSeleccionado.variantes.length > 0
+    ) {
+      return productoSeleccionado.variantes.filter((v) => v.activo !== false);
+    }
+
+    return variantesDefault;
+  }, [productoSeleccionado]);
 
   const guardarRecetas = (lista: RecetaProducto[]) => {
     setRecetas(lista);
@@ -151,7 +193,7 @@ export default function RecetasPage() {
 
   useEffect(() => {
     cargarRecetaParaEditar(varianteNombre);
-  }, [productoId, varianteNombre, recetas]);
+  }, [productoId, varianteNombre, recetas, ingredientes]);
 
   const guardarReceta = () => {
     if (!productoSeleccionado) {

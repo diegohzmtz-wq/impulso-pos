@@ -5,8 +5,6 @@ export type Categoria =
   | "COMPLEMENTOS"
   | "BEBIDAS";
 
-export type BadgeProducto = "COMBO" | "DESDE";
-
 export type CategoriaCatalogo = {
   id: number;
   nombre: string;
@@ -21,13 +19,26 @@ export type VarianteProducto = {
   activo: boolean;
 };
 
+export type ModificadorTipo = "Agregar" | "Quitar" | "Nota" | "Opción";
+
 export type ModificadorCatalogo = {
   id: number;
   nombre: string;
-  tipo: "Agregar" | "Quitar" | "Nota";
+  tipo: ModificadorTipo;
   precioExtra: number;
   activo: boolean;
   orden: number;
+  ingredienteId?: number;
+  cantidadInventario?: number;
+};
+
+export type ModificadorSeleccionado = {
+  id: number;
+  nombre: string;
+  tipo: ModificadorTipo;
+  precioExtra: number;
+  ingredienteId?: number;
+  cantidadInventario?: number;
 };
 
 export type Producto = {
@@ -39,7 +50,6 @@ export type Producto = {
   precio: number;
   costo?: number;
   imagen?: string;
-  badge?: BadgeProducto;
   activo: boolean;
   modificadores: number[];
   usaVariantes: boolean;
@@ -47,13 +57,7 @@ export type Producto = {
   stock?: number;
   stockMinimo?: number;
   favorito?: boolean;
-};
-
-export type ModificadorSeleccionado = {
-  id: number;
-  nombre: string;
-  tipo: "Agregar" | "Quitar" | "Nota";
-  precioExtra: number;
+  badge?: "COMBO" | "DESDE" | string;
 };
 
 export type ItemTicket = Producto & {
