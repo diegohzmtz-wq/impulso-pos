@@ -13,11 +13,16 @@ type ProductoInventario = {
   id: number;
   nombre: string;
   stock: number;
+  stockMinimo?: number;
+  costoUnitario?: number;
   precio?: number;
   costo?: number;
   unidad?: string;
   categoria?: string;
+  activo?: boolean;
 };
+
+const INVENTARIO_KEY = "ingredientes_inventario";
 
 export default function ComprasPage() {
   const [compras, setCompras] = useState<Compra[]>([]);
@@ -35,21 +40,14 @@ export default function ComprasPage() {
   }, []);
 
   const cargarDatos = () => {
-    const comprasGuardadas = JSON.parse(
-      localStorage.getItem("compras") || "[]"
+    setCompras(JSON.parse(localStorage.getItem("compras") || "[]"));
+    setProveedores(JSON.parse(localStorage.getItem("proveedores") || "[]"));
+
+    const inventario = JSON.parse(
+      localStorage.getItem(INVENTARIO_KEY) || "[]"
     );
 
-    const proveedoresGuardados = JSON.parse(
-      localStorage.getItem("proveedores") || "[]"
-    );
-
-    const productosGuardados = JSON.parse(
-      localStorage.getItem("productos") || "[]"
-    );
-
-    setCompras(comprasGuardadas);
-    setProveedores(proveedoresGuardados);
-    setProductos(productosGuardados);
+    setProductos(Array.isArray(inventario) ? inventario : []);
   };
 
   const guardarCompras = (nuevasCompras: Compra[]) => {
@@ -64,17 +62,20 @@ export default function ComprasPage() {
 
   const guardarProductos = (nuevosProductos: ProductoInventario[]) => {
     setProductos(nuevosProductos);
-    localStorage.setItem("productos", JSON.stringify(nuevosProductos));
+    localStorage.setItem(INVENTARIO_KEY, JSON.stringify(nuevosProductos));
   };
 
   const comprasFiltradas = useMemo(() => {
     return compras.filter((compra: any) => {
       const proveedorNombre =
-        proveedores.find((p: any) => p.id === compra.proveedorId)?.nombre || "";
+        proveedores.find((p) => p.id === compra.proveedorId)?.nombre || "";
+
+      const texto = busqueda.toLowerCase();
 
       const coincideBusqueda =
-        proveedorNombre.toLowerCase().includes(busqueda.toLowerCase()) ||
-        String(compra.id).includes(busqueda);
+        proveedorNombre.toLowerCase().includes(texto) ||
+        String(compra.id).includes(texto) ||
+        String(compra.folio || "").toLowerCase().includes(texto);
 
       const coincideEstado =
         estadoFiltro === "Todos" || compra.estado === estadoFiltro;
@@ -95,42 +96,55 @@ export default function ComprasPage() {
   const totalProveedores = proveedores.length;
 
   const stockBajo = productos.filter(
-    (producto: any) => Number(producto.stock || 0) <= 5
+    (producto) =>
+      Number(producto.stock || 0) <= Number(producto.stockMinimo || 5)
   ).length;
 
   const handleGuardarProveedor = (proveedor: Proveedor) => {
-    const existe = proveedores.some((p: any) => p.id === proveedor.id);
-
-    const nuevosProveedores = existe
-      ? proveedores.map((p: any) => (p.id === proveedor.id ? proveedor : p))
-      : [...proveedores, proveedor];
-
+    const nuevosProveedores = [...proveedores, proveedor];
     guardarProveedores(nuevosProveedores);
     setModalProveedor(false);
   };
 
   const handleGuardarCompra = (compra: Compra) => {
-    const nuevaCompra = {
+    const nuevaCompra: any = {
       ...compra,
       id: (compra as any).id || Date.now(),
       fecha: (compra as any).fecha || new Date().toISOString(),
+      estado: (compra as any).estado || "Pendiente",
     };
 
     const nuevasCompras = [nuevaCompra, ...compras];
     guardarCompras(nuevasCompras);
 
-    const productosActualizados = productos.map((producto: any) => {
-      const productoComprado = (nuevaCompra as any).productos?.find(
-        (p: any) => Number(p.id) === Number(producto.id)
+    const productosActualizados = productos.map((producto) => {
+      const productoComprado = nuevaCompra.productos?.find(
+        (item: any) => Number(item.productoId) === Number(producto.id)
       );
 
       if (!productoComprado) return producto;
 
+      const stockActual = Number(producto.stock || 0);
+      const cantidadComprada = Number(productoComprado.cantidad || 0);
+
+      const costoActual = Number(producto.costoUnitario || producto.costo || 0);
+      const costoNuevo = Number(
+        productoComprado.costoUnitario || productoComprado.costo || costoActual
+      );
+
+      const nuevoStock = stockActual + cantidadComprada;
+
+      const costoPromedio =
+        nuevoStock > 0
+          ? (stockActual * costoActual + cantidadComprada * costoNuevo) /
+            nuevoStock
+          : costoNuevo;
+
       return {
         ...producto,
-        stock:
-          Number(producto.stock || 0) + Number(productoComprado.cantidad || 0),
-        costo: Number(productoComprado.costo || producto.costo || 0),
+        stock: nuevoStock,
+        costoUnitario: Number(costoPromedio.toFixed(2)),
+        costo: Number(costoPromedio.toFixed(2)),
       };
     });
 
@@ -147,7 +161,7 @@ export default function ComprasPage() {
   };
 
   return (
-    <main className="min-h-screen bg-slate-950 text-white p-6">
+    <main className="min-h-screen bg-[#f8faf8] text-slate-900 p-6">
       <div className="mx-auto max-w-7xl space-y-6">
         <HeaderCompras
           totalCompras={totalCompras}

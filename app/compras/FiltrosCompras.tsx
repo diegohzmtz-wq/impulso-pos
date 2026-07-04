@@ -14,10 +14,10 @@ export default function FiltrosCompras({
   setEstadoFiltro,
 }: Props) {
   return (
-    <div className="rounded-2xl bg-slate-900 border border-slate-800 shadow-sm p-5">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+    <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
         <div>
-          <label className="block text-sm font-semibold text-slate-300 mb-2">
+          <label className="mb-2 block text-sm font-black text-slate-700">
             Buscar
           </label>
 
@@ -26,19 +26,19 @@ export default function FiltrosCompras({
             placeholder="Folio o proveedor..."
             value={busqueda}
             onChange={(e) => setBusqueda(e.target.value)}
-            className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white placeholder:text-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+            className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 font-semibold text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-green-500 focus:ring-4 focus:ring-green-100"
           />
         </div>
 
         <div>
-          <label className="block text-sm font-semibold text-slate-300 mb-2">
+          <label className="mb-2 block text-sm font-black text-slate-700">
             Estado
           </label>
 
           <select
             value={estadoFiltro}
             onChange={(e) => setEstadoFiltro(e.target.value)}
-            className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white focus:ring-2 focus:ring-blue-500 outline-none"
+            className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 font-semibold text-slate-800 outline-none transition focus:border-green-500 focus:ring-4 focus:ring-green-100"
           >
             <option value="Todos">Todos</option>
             <option value="Pendiente">Pendiente</option>
@@ -53,7 +53,7 @@ export default function FiltrosCompras({
               setBusqueda("");
               setEstadoFiltro("Todos");
             }}
-            className="w-full rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-semibold py-3 transition"
+            className="w-full rounded-xl border border-slate-200 bg-white py-3 font-black text-slate-800 shadow-sm transition hover:border-green-300 hover:bg-green-50"
           >
             Limpiar filtros
           </button>

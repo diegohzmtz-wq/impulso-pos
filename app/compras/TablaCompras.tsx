@@ -15,88 +15,102 @@ export default function TablaCompras({
   onVerDetalle,
   onEliminar,
 }: Props) {
-  const obtenerProveedor = (proveedorId: number) => {
-    return proveedores.find((p) => p.id === proveedorId)?.nombre || "Sin proveedor";
+  const obtenerProveedor = (proveedorId: number) =>
+    proveedores.find((p) => p.id === proveedorId)?.nombre || "Sin proveedor";
+
+  const colorEstado = (estado: string) => {
+    if (estado === "Recibida") return "bg-green-100 text-green-700";
+    if (estado === "Cancelada") return "bg-red-100 text-red-700";
+    return "bg-amber-100 text-amber-700";
   };
 
   return (
-    <div className="bg-slate-900 rounded-2xl border border-slate-800 shadow-sm overflow-hidden">
-      <div className="px-6 py-5 border-b border-slate-800">
-        <h2 className="text-lg font-bold text-white">Historial de compras</h2>
-        <p className="text-sm text-slate-400">
+    <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+      <div className="border-b border-slate-200 px-6 py-5">
+        <h2 className="text-xl font-black text-slate-900">
+          Historial de compras
+        </h2>
+
+        <p className="mt-1 text-sm font-semibold text-slate-500">
           Consulta y elimina compras registradas.
         </p>
       </div>
 
       {compras.length === 0 ? (
-        <div className="p-10 text-center">
-          <div className="text-5xl mb-3">🛒</div>
-          <h3 className="text-lg font-bold text-white">
+        <div className="p-12 text-center">
+          <div className="mb-4 text-6xl">🧾</div>
+
+          <h3 className="text-xl font-black text-slate-900">
             No hay compras registradas
           </h3>
-          <p className="text-slate-400 mt-1">
+
+          <p className="mt-2 font-semibold text-slate-500">
             Cuando agregues una compra aparecerá aquí.
           </p>
         </div>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-left">
-            <thead className="bg-slate-950 border-b border-slate-800">
+            <thead className="border-b border-slate-200 bg-slate-50">
               <tr>
-                <th className="px-6 py-4 text-xs font-bold uppercase text-slate-400">
+                <th className="px-6 py-4 text-xs font-black uppercase text-slate-500">
                   Folio
                 </th>
-                <th className="px-6 py-4 text-xs font-bold uppercase text-slate-400">
+                <th className="px-6 py-4 text-xs font-black uppercase text-slate-500">
                   Proveedor
                 </th>
-                <th className="px-6 py-4 text-xs font-bold uppercase text-slate-400">
+                <th className="px-6 py-4 text-xs font-black uppercase text-slate-500">
                   Fecha
                 </th>
-                <th className="px-6 py-4 text-xs font-bold uppercase text-slate-400">
+                <th className="px-6 py-4 text-xs font-black uppercase text-slate-500">
                   Productos
                 </th>
-                <th className="px-6 py-4 text-xs font-bold uppercase text-slate-400">
+                <th className="px-6 py-4 text-xs font-black uppercase text-slate-500">
                   Total
                 </th>
-                <th className="px-6 py-4 text-xs font-bold uppercase text-slate-400">
+                <th className="px-6 py-4 text-xs font-black uppercase text-slate-500">
                   Estado
                 </th>
-                <th className="px-6 py-4 text-xs font-bold uppercase text-slate-400 text-right">
+                <th className="px-6 py-4 text-right text-xs font-black uppercase text-slate-500">
                   Acciones
                 </th>
               </tr>
             </thead>
 
-            <tbody className="divide-y divide-slate-800">
-              {compras.map((compra) => (
-                <tr key={compra.id} className="hover:bg-slate-800/60 transition">
-                  <td className="px-6 py-4 font-bold text-white">
-                    #{compra.id}
+            <tbody className="divide-y divide-slate-100">
+              {compras.map((compra: any) => (
+                <tr key={compra.id} className="transition hover:bg-green-50/50">
+                  <td className="px-6 py-4 font-black text-slate-900">
+                    #{compra.folio || compra.id}
                   </td>
 
-                  <td className="px-6 py-4 text-slate-300">
-                    {obtenerProveedor((compra as any).proveedorId)}
+                  <td className="px-6 py-4 font-semibold text-slate-700">
+                    {obtenerProveedor(compra.proveedorId)}
                   </td>
 
-                  <td className="px-6 py-4 text-slate-400">
-                    {new Date((compra as any).fecha).toLocaleDateString("es-MX")}
+                  <td className="px-6 py-4 font-semibold text-slate-500">
+                    {new Date(compra.fecha).toLocaleDateString("es-MX")}
                   </td>
 
-                  <td className="px-6 py-4 text-slate-400">
-                    {(compra as any).productos?.length || 0}
+                  <td className="px-6 py-4 font-semibold text-slate-500">
+                    {compra.productos?.length || 0}
                   </td>
 
-                  <td className="px-6 py-4 font-bold text-white">
+                  <td className="px-6 py-4 font-black text-slate-900">
                     $
-                    {Number((compra as any).total || 0).toLocaleString("es-MX", {
+                    {Number(compra.total || 0).toLocaleString("es-MX", {
                       minimumFractionDigits: 2,
                       maximumFractionDigits: 2,
                     })}
                   </td>
 
                   <td className="px-6 py-4">
-                    <span className="inline-flex rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-xs font-bold text-amber-300">
-                      {(compra as any).estado || "Pendiente"}
+                    <span
+                      className={`inline-flex rounded-full px-3 py-1 text-xs font-black ${colorEstado(
+                        compra.estado || "Pendiente"
+                      )}`}
+                    >
+                      {compra.estado || "Pendiente"}
                     </span>
                   </td>
 
@@ -104,14 +118,14 @@ export default function TablaCompras({
                     <div className="flex justify-end gap-2">
                       <button
                         onClick={() => onVerDetalle(compra)}
-                        className="rounded-lg border border-slate-700 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800 transition"
+                        className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-700 transition hover:border-green-300 hover:bg-green-50"
                       >
                         Ver
                       </button>
 
                       <button
                         onClick={() => onEliminar(compra.id)}
-                        className="rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700 transition"
+                        className="rounded-xl bg-red-50 px-4 py-2 text-sm font-black text-red-600 transition hover:bg-red-100"
                       >
                         Eliminar
                       </button>

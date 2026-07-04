@@ -21,65 +21,58 @@ export default function CompraDetalle({
     "Sin proveedor";
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-6">
-      <div className="w-full max-w-5xl bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl overflow-hidden">
-        <div className="px-6 py-5 border-b border-slate-800 flex items-center justify-between">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-6">
+      <div className="w-full max-w-5xl overflow-hidden rounded-[32px] bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-slate-200 px-7 py-6">
           <div>
-            <h2 className="text-2xl font-bold text-white">
+            <h2 className="text-3xl font-black text-slate-900">
               Detalle de compra
             </h2>
-
-            <p className="text-sm text-slate-400">
-              Compra #{compra.id}
+            <p className="mt-1 text-sm font-semibold text-slate-500">
+              Compra #{(compra as any).folio || compra.id}
             </p>
           </div>
 
           <button
             onClick={onCerrar}
-            className="rounded-xl bg-slate-800 hover:bg-slate-700 px-4 py-2 font-bold text-white"
+            className="rounded-2xl bg-slate-100 px-4 py-2 font-black text-slate-700 transition hover:bg-slate-200"
           >
             ✕
           </button>
         </div>
 
-        <div className="p-6 space-y-6">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="rounded-2xl bg-slate-950 border border-slate-800 p-4">
-              <p className="text-xs uppercase text-slate-400">
+        <div className="max-h-[75vh] space-y-6 overflow-y-auto p-7">
+          <div className="grid grid-cols-1 gap-5 md:grid-cols-4">
+            <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+              <p className="text-xs font-black uppercase text-slate-400">
                 Proveedor
               </p>
-
-              <p className="mt-2 text-white font-bold">
-                {proveedor}
-              </p>
+              <p className="mt-2 font-black text-slate-900">{proveedor}</p>
             </div>
 
-            <div className="rounded-2xl bg-slate-950 border border-slate-800 p-4">
-              <p className="text-xs uppercase text-slate-400">
+            <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+              <p className="text-xs font-black uppercase text-slate-400">
                 Fecha
               </p>
-
-              <p className="mt-2 text-white font-bold">
+              <p className="mt-2 font-black text-slate-900">
                 {new Date((compra as any).fecha).toLocaleDateString("es-MX")}
               </p>
             </div>
 
-            <div className="rounded-2xl bg-slate-950 border border-slate-800 p-4">
-              <p className="text-xs uppercase text-slate-400">
+            <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+              <p className="text-xs font-black uppercase text-slate-400">
                 Estado
               </p>
-
-              <p className="mt-2 font-bold text-amber-400">
-                {(compra as any).estado}
-              </p>
+              <span className="mt-2 inline-flex rounded-full bg-amber-100 px-3 py-1 text-xs font-black text-amber-700">
+                {(compra as any).estado || "Pendiente"}
+              </span>
             </div>
 
-            <div className="rounded-2xl bg-blue-600 p-4">
-              <p className="text-xs uppercase text-blue-100">
+            <div className="rounded-3xl bg-green-600 p-5 shadow-lg shadow-green-200">
+              <p className="text-xs font-black uppercase text-green-100">
                 Total
               </p>
-
-              <p className="mt-2 text-3xl font-bold text-white">
+              <p className="mt-2 text-3xl font-black text-white">
                 $
                 {Number((compra as any).total || 0).toLocaleString("es-MX", {
                   minimumFractionDigits: 2,
@@ -89,64 +82,65 @@ export default function CompraDetalle({
             </div>
           </div>
 
-          <div className="rounded-2xl border border-slate-800 overflow-hidden">
-            <table className="w-full">
-              <thead className="bg-slate-950">
-                <tr>
-                  <th className="px-4 py-3 text-left text-slate-400">
-                    Producto
-                  </th>
+          <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+            <div className="border-b border-slate-200 px-6 py-5">
+              <h3 className="text-xl font-black text-slate-900">
+                Productos comprados
+              </h3>
+              <p className="mt-1 text-sm font-semibold text-slate-500">
+                Lista de productos incluidos en esta compra.
+              </p>
+            </div>
 
-                  <th className="px-4 py-3 text-left text-slate-400">
-                    Cantidad
-                  </th>
-
-                  <th className="px-4 py-3 text-left text-slate-400">
-                    Costo
-                  </th>
-
-                  <th className="px-4 py-3 text-left text-slate-400">
-                    Subtotal
-                  </th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {(compra as any).productos?.map((item: any) => (
-                  <tr
-                    key={item.id}
-                    className="border-t border-slate-800"
-                  >
-                    <td className="px-4 py-4 text-white">
-                      {item.nombre}
-                    </td>
-
-                    <td className="px-4 py-4 text-slate-300">
-                      {item.cantidad}
-                    </td>
-
-                    <td className="px-4 py-4 text-slate-300">
-                      $
-                      {Number(
-                        item.costoUnitario ?? item.costo ?? 0
-                      ).toFixed(2)}
-                    </td>
-
-                    <td className="px-4 py-4 font-bold text-white">
-                      $
-                      {Number(item.subtotal || 0).toFixed(2)}
-                    </td>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left">
+                <thead className="border-b border-slate-200 bg-slate-50">
+                  <tr>
+                    <th className="px-6 py-4 text-xs font-black uppercase text-slate-500">
+                      Producto
+                    </th>
+                    <th className="px-6 py-4 text-xs font-black uppercase text-slate-500">
+                      Cantidad
+                    </th>
+                    <th className="px-6 py-4 text-xs font-black uppercase text-slate-500">
+                      Costo
+                    </th>
+                    <th className="px-6 py-4 text-xs font-black uppercase text-slate-500">
+                      Subtotal
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+
+                <tbody className="divide-y divide-slate-100">
+                  {(compra as any).productos?.map((item: any) => (
+                    <tr key={item.id} className="transition hover:bg-green-50/50">
+                      <td className="px-6 py-4 font-black text-slate-900">
+                        {item.nombre}
+                      </td>
+                      <td className="px-6 py-4 font-semibold text-slate-600">
+                        {item.cantidad}
+                      </td>
+                      <td className="px-6 py-4 font-semibold text-slate-600">
+                        $
+                        {Number(item.costoUnitario ?? item.costo ?? 0).toFixed(
+                          2
+                        )}
+                      </td>
+                      <td className="px-6 py-4 font-black text-slate-900">
+                        ${Number(item.subtotal || 0).toFixed(2)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
 
-        <div className="px-6 py-5 border-t border-slate-800 flex justify-end">
+        <div className="flex justify-end border-t border-slate-200 px-7 py-5">
           <button
             onClick={onCerrar}
-            className="rounded-xl bg-blue-600 hover:bg-blue-700 px-6 py-3 font-bold text-white"
+            className="rounded-2xl bg-green-600 px-7 py-3 font-black text-white shadow-lg shadow-green-200 transition hover:bg-green-700"
           >
             Cerrar
           </button>
