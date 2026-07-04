@@ -2,10 +2,14 @@
 
 import ProtegerRuta from "@/components/ProtegerRuta";
 
-export default function LayoutProtegido({
+export default function AdminLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  return <ProtegerRuta>{children}</ProtegerRuta>;
+  return (
+    <ProtegerRuta rolesPermitidos={["Admin", "Gerente"]}>
+      {children}
+    </ProtegerRuta>
+  );
 }

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
-type RolUsuario = "Admin" | "Gerente" | "Cajero";
+type RolUsuario = "Admin" | "Gerente" | "Cajero" | "Cocina";
 
 type UsuarioSistema = {
   id: number;
@@ -12,6 +12,8 @@ type UsuarioSistema = {
   nombre: string;
   rol: RolUsuario;
   activo: boolean;
+  creadoEn?: string;
+  ultimoAcceso?: string;
 };
 
 type UsuarioSesion = {
@@ -30,6 +32,7 @@ const usuariosDefault: UsuarioSistema[] = [
     nombre: "Juan",
     rol: "Gerente",
     activo: true,
+    creadoEn: new Date().toISOString(),
   },
   {
     id: 2,
@@ -38,6 +41,7 @@ const usuariosDefault: UsuarioSistema[] = [
     nombre: "Administrador",
     rol: "Admin",
     activo: true,
+    creadoEn: new Date().toISOString(),
   },
   {
     id: 3,
@@ -46,6 +50,7 @@ const usuariosDefault: UsuarioSistema[] = [
     nombre: "Cajero",
     rol: "Cajero",
     activo: true,
+    creadoEn: new Date().toISOString(),
   },
 ];
 
@@ -63,11 +68,14 @@ export default function LoginPage() {
 
     if (sesion) {
       router.replace("/ventas");
+      return;
     }
 
-    const usuariosGuardados = localStorage.getItem("usuarios_sistema");
+    const usuariosGuardados = JSON.parse(
+      localStorage.getItem("usuarios_sistema") || "null"
+    );
 
-    if (!usuariosGuardados) {
+    if (!Array.isArray(usuariosGuardados) || usuariosGuardados.length === 0) {
       localStorage.setItem("usuarios_sistema", JSON.stringify(usuariosDefault));
     }
   }, [router]);
@@ -87,7 +95,6 @@ export default function LoginPage() {
 
     const encontrado = usuarios.find(
       (item) =>
-        item.activo !== false &&
         item.usuario.toLowerCase() === usuario.trim().toLowerCase() &&
         item.clave === clave
     );
@@ -97,12 +104,28 @@ export default function LoginPage() {
       return;
     }
 
+    if (encontrado.activo === false) {
+      setError("Este usuario está desactivado. Contacta al administrador.");
+      return;
+    }
+
+    const ahora = new Date().toISOString();
+
+    const usuariosActualizados = usuarios.map((item) =>
+      item.id === encontrado.id ? { ...item, ultimoAcceso: ahora } : item
+    );
+
+    localStorage.setItem(
+      "usuarios_sistema",
+      JSON.stringify(usuariosActualizados)
+    );
+
     const nuevaSesion: UsuarioSesion = {
       id: encontrado.id,
       usuario: encontrado.usuario,
       nombre: encontrado.nombre,
       rol: encontrado.rol,
-      fechaInicio: new Date().toISOString(),
+      fechaInicio: ahora,
     };
 
     localStorage.setItem("usuario_sesion", JSON.stringify(nuevaSesion));
@@ -225,10 +248,11 @@ export default function LoginPage() {
             </form>
 
             <div className="mt-8 rounded-2xl bg-gray-50 p-4 text-sm font-bold text-gray-500 ring-1 ring-gray-200">
-              <p className="font-black text-gray-700">Usuarios de prueba:</p>
+              <p className="font-black text-gray-700">Acceso inicial:</p>
               <p className="mt-2">juan / 1234</p>
-              <p>admin / admin123</p>
-              <p>cajero / 1234</p>
+              <p className="mt-2 text-xs">
+                Después puedes crear más usuarios desde Admin → Usuarios.
+              </p>
             </div>
           </div>
         </section>
