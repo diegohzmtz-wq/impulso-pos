@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ingredientesBase } from "./data";
+import { supabase } from "@/lib/supabase";
 import { IngredienteInventario, UnidadInventario } from "./types";
 
 const unidades: UnidadInventario[] = [
@@ -14,13 +14,37 @@ const unidades: UnidadInventario[] = [
   "caja",
 ];
 
-const formatoDinero = (valor: number) => {
-  return `$${Number(valor || 0).toFixed(2)}`;
+type InventarioDB = {
+  id: number;
+  nombre: string;
+  categoria: string | null;
+  unidad: UnidadInventario | null;
+  stock: number | null;
+  stock_minimo: number | null;
+  costo: number | null;
+  precio: number | null;
+  proveedor: string | null;
+  activo: boolean | null;
 };
+
+const formatoDinero = (valor: number) => `$${Number(valor || 0).toFixed(2)}`;
+
+const convertirDesdeDB = (item: InventarioDB): IngredienteInventario => ({
+  id: item.id,
+  nombre: item.nombre,
+  categoria: item.categoria || "General",
+  unidad: item.unidad || "pieza",
+  stock: Number(item.stock || 0),
+  stockMinimo: Number(item.stock_minimo || 0),
+  costoUnitario: Number(item.costo || 0),
+  activo: item.activo ?? true,
+});
 
 export default function InventarioPage() {
   const [ingredientes, setIngredientes] = useState<IngredienteInventario[]>([]);
   const [busqueda, setBusqueda] = useState("");
+  const [cargando, setCargando] = useState(true);
+  const [guardando, setGuardando] = useState(false);
 
   const [nombre, setNombre] = useState("");
   const [categoria, setCategoria] = useState("");
@@ -31,27 +55,39 @@ export default function InventarioPage() {
   const [editandoId, setEditandoId] = useState<number | null>(null);
 
   useEffect(() => {
-    try {
-      const guardados = localStorage.getItem("ingredientes_inventario");
+    cargarInventario();
 
-      if (guardados) {
-        const lista = JSON.parse(guardados);
-        setIngredientes(Array.isArray(lista) ? lista : ingredientesBase);
-      } else {
-        setIngredientes(ingredientesBase);
-        localStorage.setItem(
-          "ingredientes_inventario",
-          JSON.stringify(ingredientesBase)
-        );
-      }
-    } catch {
-      setIngredientes(ingredientesBase);
-    }
+    const canal = supabase
+      .channel("inventario-tiempo-real")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "inventario" },
+        () => cargarInventario()
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(canal);
+    };
   }, []);
 
-  const guardarLocal = (lista: IngredienteInventario[]) => {
-    setIngredientes(lista);
-    localStorage.setItem("ingredientes_inventario", JSON.stringify(lista));
+  const cargarInventario = async () => {
+    setCargando(true);
+
+    const { data, error } = await supabase
+      .from("inventario")
+      .select("*")
+      .order("id", { ascending: false });
+
+    if (error) {
+      console.error(error);
+      alert("Error al cargar inventario desde Supabase");
+      setCargando(false);
+      return;
+    }
+
+    setIngredientes((data || []).map(convertirDesdeDB));
+    setCargando(false);
   };
 
   const ingredientesFiltrados = useMemo(() => {
@@ -70,7 +106,8 @@ export default function InventarioPage() {
 
   const totalValorInventario = useMemo(() => {
     return ingredientes.reduce(
-      (sum, ing) => sum + Number(ing.stock || 0) * Number(ing.costoUnitario || 0),
+      (sum, ing) =>
+        sum + Number(ing.stock || 0) * Number(ing.costoUnitario || 0),
       0
     );
   }, [ingredientes]);
@@ -91,7 +128,7 @@ export default function InventarioPage() {
     setEditandoId(null);
   };
 
-  const guardarIngrediente = () => {
+  const guardarIngrediente = async () => {
     if (!nombre.trim()) {
       alert("Escribe el nombre del ingrediente");
       return;
@@ -102,33 +139,39 @@ export default function InventarioPage() {
       return;
     }
 
-    if (Number(stock) < 0 || stock === "") {
+    if (stock === "" || Number(stock) < 0) {
       alert("Ingresa un stock válido");
       return;
     }
 
-    const ingrediente: IngredienteInventario = {
-      id: editandoId || Date.now(),
+    setGuardando(true);
+
+    const datos = {
       nombre: nombre.trim(),
       categoria: categoria.trim(),
       unidad,
       stock: Number(stock || 0),
-      stockMinimo: Number(stockMinimo || 0),
-      costoUnitario: Number(costoUnitario || 0),
+      stock_minimo: Number(stockMinimo || 0),
+      costo: Number(costoUnitario || 0),
+      precio: 0,
+      proveedor: "",
       activo: true,
     };
 
-    if (editandoId) {
-      guardarLocal(
-        ingredientes.map((item) =>
-          item.id === editandoId ? ingrediente : item
-        )
-      );
-    } else {
-      guardarLocal([ingrediente, ...ingredientes]);
+    const respuesta = editandoId
+      ? await supabase.from("inventario").update(datos).eq("id", editandoId)
+      : await supabase.from("inventario").insert(datos);
+
+    if (respuesta.error) {
+      console.error(respuesta.error);
+      alert("Error al guardar ingrediente");
+      setGuardando(false);
+      return;
     }
 
+    await cargarInventario();
     limpiarFormulario();
+    setGuardando(false);
   };
 
   const editarIngrediente = (ingrediente: IngredienteInventario) => {
@@ -141,11 +184,19 @@ export default function InventarioPage() {
     setCostoUnitario(String(ingrediente.costoUnitario));
   };
 
-  const eliminarIngrediente = (id: number) => {
+  const eliminarIngrediente = async (id: number) => {
     const confirmar = confirm("¿Eliminar ingrediente del inventario?");
     if (!confirmar) return;
 
-    guardarLocal(ingredientes.filter((item) => item.id !== id));
+    const { error } = await supabase.from("inventario").delete().eq("id", id);
+
+    if (error) {
+      console.error(error);
+      alert("Error al eliminar ingrediente");
+      return;
+    }
+
+    await cargarInventario();
   };
 
   return (
@@ -157,9 +208,17 @@ export default function InventarioPage() {
           </p>
           <h1 className="text-4xl font-black">📦 Inventario</h1>
           <p className="mt-1 font-semibold text-gray-500">
-            Administra ingredientes, costos y stock mínimo.
+            Inventario conectado a Supabase en tiempo real.
           </p>
         </div>
+
+        <button
+          type="button"
+          onClick={cargarInventario}
+          className="rounded-2xl bg-green-600 px-5 py-3 font-black text-white hover:bg-green-700"
+        >
+          Actualizar
+        </button>
       </header>
 
       <section className="space-y-8 p-8">
@@ -260,9 +319,14 @@ export default function InventarioPage() {
                 <button
                   type="button"
                   onClick={guardarIngrediente}
-                  className="rounded-2xl bg-green-600 py-4 font-black text-white hover:bg-green-700"
+                  disabled={guardando}
+                  className="rounded-2xl bg-green-600 py-4 font-black text-white hover:bg-green-700 disabled:opacity-60"
                 >
-                  {editandoId ? "Guardar" : "Agregar"}
+                  {guardando
+                    ? "Guardando..."
+                    : editandoId
+                    ? "Guardar"
+                    : "Agregar"}
                 </button>
               </div>
             </div>
@@ -273,7 +337,7 @@ export default function InventarioPage() {
               <div>
                 <h2 className="text-2xl font-black">Ingredientes</h2>
                 <p className="font-semibold text-gray-500">
-                  Cada venta descontará estos insumos por receta.
+                  Cada cambio se guarda en Supabase.
                 </p>
               </div>
 
@@ -285,100 +349,106 @@ export default function InventarioPage() {
               />
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[900px] border-collapse">
-                <thead>
-                  <tr className="border-b border-gray-200 bg-gray-50 text-left text-sm text-gray-500">
-                    <th className="px-4 py-4 font-black">Ingrediente</th>
-                    <th className="px-4 py-4 font-black">Categoría</th>
-                    <th className="px-4 py-4 font-black">Stock</th>
-                    <th className="px-4 py-4 font-black">Mínimo</th>
-                    <th className="px-4 py-4 font-black">Costo</th>
-                    <th className="px-4 py-4 font-black">Valor</th>
-                    <th className="px-4 py-4 text-center font-black">
-                      Acciones
-                    </th>
-                  </tr>
-                </thead>
+            {cargando ? (
+              <div className="p-10 text-center">
+                <p className="text-2xl font-black">Cargando inventario...</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[900px] border-collapse">
+                  <thead>
+                    <tr className="border-b border-gray-200 bg-gray-50 text-left text-sm text-gray-500">
+                      <th className="px-4 py-4 font-black">Ingrediente</th>
+                      <th className="px-4 py-4 font-black">Categoría</th>
+                      <th className="px-4 py-4 font-black">Stock</th>
+                      <th className="px-4 py-4 font-black">Mínimo</th>
+                      <th className="px-4 py-4 font-black">Costo</th>
+                      <th className="px-4 py-4 font-black">Valor</th>
+                      <th className="px-4 py-4 text-center font-black">
+                        Acciones
+                      </th>
+                    </tr>
+                  </thead>
 
-                <tbody>
-                  {ingredientesFiltrados.map((ing) => {
-                    const bajo =
-                      Number(ing.stock || 0) <= Number(ing.stockMinimo || 0);
+                  <tbody>
+                    {ingredientesFiltrados.map((ing) => {
+                      const bajo =
+                        Number(ing.stock || 0) <= Number(ing.stockMinimo || 0);
 
-                    return (
-                      <tr key={ing.id} className="border-b border-gray-100">
-                        <td className="px-4 py-4">
-                          <p className="font-black text-gray-950">
-                            {ing.nombre}
-                          </p>
-                          <p className="text-xs font-semibold text-gray-500">
-                            Unidad: {ing.unidad}
-                          </p>
-                        </td>
+                      return (
+                        <tr key={ing.id} className="border-b border-gray-100">
+                          <td className="px-4 py-4">
+                            <p className="font-black text-gray-950">
+                              {ing.nombre}
+                            </p>
+                            <p className="text-xs font-semibold text-gray-500">
+                              Unidad: {ing.unidad}
+                            </p>
+                          </td>
 
-                        <td className="px-4 py-4 font-bold text-gray-700">
-                          {ing.categoria}
-                        </td>
+                          <td className="px-4 py-4 font-bold text-gray-700">
+                            {ing.categoria}
+                          </td>
 
-                        <td className="px-4 py-4">
-                          <span
-                            className={`rounded-full px-3 py-1 text-sm font-black ${
-                              bajo
-                                ? "bg-red-100 text-red-700"
-                                : "bg-green-100 text-green-700"
-                            }`}
-                          >
-                            {ing.stock} {ing.unidad}
-                          </span>
-                        </td>
-
-                        <td className="px-4 py-4 font-bold text-gray-700">
-                          {ing.stockMinimo} {ing.unidad}
-                        </td>
-
-                        <td className="px-4 py-4 font-black text-gray-950">
-                          {formatoDinero(ing.costoUnitario)}
-                        </td>
-
-                        <td className="px-4 py-4 font-black text-green-600">
-                          {formatoDinero(ing.stock * ing.costoUnitario)}
-                        </td>
-
-                        <td className="px-4 py-4">
-                          <div className="flex justify-center gap-2">
-                            <button
-                              type="button"
-                              onClick={() => editarIngrediente(ing)}
-                              className="rounded-xl bg-blue-600 px-4 py-2 font-bold text-white hover:bg-blue-700"
+                          <td className="px-4 py-4">
+                            <span
+                              className={`rounded-full px-3 py-1 text-sm font-black ${
+                                bajo
+                                  ? "bg-red-100 text-red-700"
+                                  : "bg-green-100 text-green-700"
+                              }`}
                             >
-                              Editar
-                            </button>
+                              {ing.stock} {ing.unidad}
+                            </span>
+                          </td>
 
-                            <button
-                              type="button"
-                              onClick={() => eliminarIngrediente(ing.id)}
-                              className="rounded-xl bg-red-50 px-4 py-2 font-bold text-red-600 hover:bg-red-100"
-                            >
-                              Eliminar
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                          <td className="px-4 py-4 font-bold text-gray-700">
+                            {ing.stockMinimo} {ing.unidad}
+                          </td>
 
-              {ingredientesFiltrados.length === 0 && (
-                <div className="p-10 text-center">
-                  <p className="text-2xl font-black">Sin ingredientes</p>
-                  <p className="text-gray-500">
-                    Agrega ingredientes para crear recetas.
-                  </p>
-                </div>
-              )}
-            </div>
+                          <td className="px-4 py-4 font-black text-gray-950">
+                            {formatoDinero(ing.costoUnitario)}
+                          </td>
+
+                          <td className="px-4 py-4 font-black text-green-600">
+                            {formatoDinero(ing.stock * ing.costoUnitario)}
+                          </td>
+
+                          <td className="px-4 py-4">
+                            <div className="flex justify-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => editarIngrediente(ing)}
+                                className="rounded-xl bg-blue-600 px-4 py-2 font-bold text-white hover:bg-blue-700"
+                              >
+                                Editar
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => eliminarIngrediente(ing.id)}
+                                className="rounded-xl bg-red-50 px-4 py-2 font-bold text-red-600 hover:bg-red-100"
+                              >
+                                Eliminar
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+
+                {ingredientesFiltrados.length === 0 && (
+                  <div className="p-10 text-center">
+                    <p className="text-2xl font-black">Sin ingredientes</p>
+                    <p className="text-gray-500">
+                      Agrega ingredientes para crear recetas.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
           </section>
         </div>
       </section>
