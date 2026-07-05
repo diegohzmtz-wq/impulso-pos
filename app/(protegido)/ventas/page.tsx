@@ -2,12 +2,16 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase";
+
 import HeaderVentas from "./HeaderVentas";
 import Categorias from "./categorias";
 import ProductoGrid from "./ProductoGrid";
 import Ticket from "./Ticket";
 import ProductoModal from "./ProductoModal";
+
 import { productosCatalogoBase } from "./data";
+
 import {
   Categoria,
   CategoriaCatalogo,
@@ -15,6 +19,12 @@ import {
   ModificadorCatalogo,
   Producto,
 } from "./types";
+
+const HeaderVentasAny = HeaderVentas as any;
+const CategoriasAny = Categorias as any;
+const ProductoGridAny = ProductoGrid as any;
+const TicketAny = Ticket as any;
+const ProductoModalAny = ProductoModal as any;
 
 const categoriasDefault: CategoriaCatalogo[] = [
   { id: 1, nombre: "HAMBURGUESAS", activo: true, orden: 1 },
@@ -25,8 +35,8 @@ const categoriasDefault: CategoriaCatalogo[] = [
 
 type TurnoActivo = {
   id: number;
-  fechaApertura: string;
-  cajaInicial: number;
+  fechaApertura?: string;
+  cajaInicial?: number;
   estado: "abierto";
   cajero?: string;
 };
@@ -48,29 +58,38 @@ type RecetaProducto = {
   activo: boolean;
 };
 
+const leerJson = <T,>(clave: string, valorDefault: T): T => {
+  try {
+    if (typeof window === "undefined") return valorDefault;
+
+    const data = localStorage.getItem(clave);
+    if (!data) return valorDefault;
+
+    return JSON.parse(data) as T;
+  } catch {
+    return valorDefault;
+  }
+};
+
 const normalizarCategoria = (nombre?: string): Categoria => {
   const valor = String(nombre || "").toUpperCase();
 
-  if (valor.includes("HAMBURGUESA")) return "HAMBURGUESAS";
-  if (valor.includes("COMBO")) return "COMBOS";
-  if (valor.includes("COMPLEMENTO")) return "COMPLEMENTOS";
-  if (valor.includes("BEBIDA")) return "BEBIDAS";
+  if (valor.includes("HAMBURGUESA")) return "HAMBURGUESAS" as Categoria;
+  if (valor.includes("COMBO")) return "COMBOS" as Categoria;
+  if (valor.includes("COMPLEMENTO")) return "COMPLEMENTOS" as Categoria;
+  if (valor.includes("BEBIDA")) return "BEBIDAS" as Categoria;
+  if (valor.includes("TODOS")) return "Todos" as Categoria;
 
-  return "HAMBURGUESAS";
+  return "HAMBURGUESAS" as Categoria;
 };
 
 const obtenerTurnoActivo = (): TurnoActivo | null => {
-  try {
-    const turno =
-      JSON.parse(localStorage.getItem("turnoActivo") || "null") ||
-      JSON.parse(localStorage.getItem("turno_activo") || "null");
+  const turnoUno = leerJson<TurnoActivo | null>("turnoActivo", null);
+  const turnoDos = leerJson<TurnoActivo | null>("turno_activo", null);
+  const turno = turnoUno || turnoDos;
 
-    if (turno?.estado === "abierto") return turno;
-
-    return null;
-  } catch {
-    return null;
-  }
+  if (turno?.estado === "abierto") return turno;
+  return null;
 };
 
 const agregarDescuento = (
@@ -79,7 +98,6 @@ const agregarDescuento = (
   cantidad: number
 ) => {
   if (!ingredienteId || cantidad <= 0) return;
-
   descuentos[ingredienteId] = (descuentos[ingredienteId] || 0) + cantidad;
 };
 
@@ -89,7 +107,6 @@ const quitarDescuento = (
   cantidad: number
 ) => {
   if (!ingredienteId || cantidad <= 0) return;
-
   descuentos[ingredienteId] = Math.max(
     0,
     (descuentos[ingredienteId] || 0) - cantidad
@@ -97,27 +114,22 @@ const quitarDescuento = (
 };
 
 const descontarInventarioPorReceta = (carrito: ItemTicket[]) => {
-  const ingredientes = JSON.parse(
-    localStorage.getItem("ingredientes_inventario") || "[]"
-  );
-
-  const recetas: RecetaProducto[] = JSON.parse(
-    localStorage.getItem("recetas_productos") || "[]"
-  );
+  const ingredientes = leerJson<any[]>("ingredientes_inventario", []);
+  const recetas = leerJson<RecetaProducto[]>("recetas_productos", []);
 
   if (!Array.isArray(ingredientes)) return;
 
   const descuentosPorIngrediente: Record<number, number> = {};
 
   carrito.forEach((item) => {
-    const cantidadVendida = Number(item.cantidad || 1);
-
+    const itemAny = item as any;
+    const cantidadVendida = Number(itemAny.cantidad || 1);
     const receta = recetas.find(
-      (r) => Number(r.productoId) === Number(item.id)
+      (r) => Number(r.productoId) === Number(itemAny.id)
     );
 
-    if (receta) {
-      const nombreVariante = item.varianteSeleccionada?.nombre || "BASE";
+    if (receta && receta.activo !== false) {
+      const nombreVariante = itemAny.varianteSeleccionada?.nombre || "BASE";
 
       const recetaVariante = receta.variantes?.find(
         (v) =>
@@ -125,10 +137,9 @@ const descontarInventarioPorReceta = (carrito: ItemTicket[]) => {
           String(nombreVariante).toLowerCase()
       );
 
-      const ingredientesReceta =
-        (recetaVariante?.ingredientes?.length || 0) > 0
-          ? recetaVariante?.ingredientes || []
-          : receta.ingredientesBase || [];
+      const ingredientesReceta = recetaVariante?.ingredientes?.length
+        ? recetaVariante.ingredientes
+        : receta.ingredientesBase || [];
 
       ingredientesReceta.forEach((ing) => {
         agregarDescuento(
@@ -138,27 +149,24 @@ const descontarInventarioPorReceta = (carrito: ItemTicket[]) => {
         );
       });
     } else {
-      const texto = `${item.nombre || ""} ${
-        item.varianteSeleccionada?.nombre || ""
+      const texto = `${itemAny.nombre || ""} ${
+        itemAny.varianteSeleccionada?.nombre || ""
       }`.toLowerCase();
 
       const esHamburguesa =
         texto.includes("hamburguesa") ||
         texto.includes("burger") ||
-        item.categoria === "HAMBURGUESAS" ||
-        item.categoria === "COMBOS";
+        itemAny.categoria === "HAMBURGUESAS" ||
+        itemAny.categoria === "COMBOS";
 
       if (esHamburguesa) {
         const esDoble = texto.includes("doble");
-        const esCombo = texto.includes("combo") || item.categoria === "COMBOS";
-
-        const carne = esDoble ? 2 : 1;
-        const queso = esDoble ? 2 : 1;
+        const esCombo = texto.includes("combo") || itemAny.categoria === "COMBOS";
 
         const ingredientesFallback = [
           { ingredienteId: 1, cantidad: 1 },
-          { ingredienteId: 2, cantidad: carne },
-          { ingredienteId: 3, cantidad: queso },
+          { ingredienteId: 2, cantidad: esDoble ? 2 : 1 },
+          { ingredienteId: 3, cantidad: esDoble ? 2 : 1 },
           { ingredienteId: 6, cantidad: 20 },
           { ingredienteId: 7, cantidad: 20 },
           { ingredienteId: 8, cantidad: 10 },
@@ -180,7 +188,7 @@ const descontarInventarioPorReceta = (carrito: ItemTicket[]) => {
       }
     }
 
-    const modificadores = item.modificadoresSeleccionados || [];
+    const modificadores = (itemAny.modificadoresSeleccionados || []) as any[];
 
     modificadores.forEach((modificador) => {
       const ingredienteId = Number(modificador.ingredienteId || 0);
@@ -189,7 +197,7 @@ const descontarInventarioPorReceta = (carrito: ItemTicket[]) => {
 
       if (!ingredienteId || cantidadInventario <= 0) return;
 
-      if (modificador.tipo === "Agregar" || modificador.tipo === "Opción") {
+      if (modificador.tipo === "Agregar") {
         agregarDescuento(
           descuentosPorIngrediente,
           ingredienteId,
@@ -207,7 +215,7 @@ const descontarInventarioPorReceta = (carrito: ItemTicket[]) => {
     });
   });
 
-  const nuevoInventario = ingredientes.map((ingrediente: any) => {
+  const nuevoInventario = ingredientes.map((ingrediente) => {
     const descuento = descuentosPorIngrediente[Number(ingrediente.id)] || 0;
 
     return {
@@ -224,14 +232,16 @@ const descontarInventarioPorReceta = (carrito: ItemTicket[]) => {
 
 export default function VentasPage() {
   const router = useRouter();
-  const [cargandoSesion, setCargandoSesion] = useState(true);
 
+  const [cargandoSesion, setCargandoSesion] = useState(true);
   const [productosVenta, setProductosVenta] = useState<Producto[]>([]);
   const [modificadoresCatalogo, setModificadoresCatalogo] = useState<
     ModificadorCatalogo[]
   >([]);
 
-  const [categoriaActiva, setCategoriaActiva] = useState<Categoria>("Todos");
+  const [categoriaActiva, setCategoriaActiva] = useState<Categoria>(
+    "Todos" as Categoria
+  );
   const [busqueda, setBusqueda] = useState("");
   const [carrito, setCarrito] = useState<ItemTicket[]>([]);
   const [productoModal, setProductoModal] = useState<Producto | null>(null);
@@ -252,9 +262,7 @@ export default function VentasPage() {
   }, [router]);
 
   useEffect(() => {
-    if (!cargandoSesion) {
-      cargarCatalogo();
-    }
+    if (!cargandoSesion) cargarCatalogo();
   }, [cargandoSesion]);
 
   const cargarCatalogo = () => {
@@ -272,292 +280,285 @@ export default function VentasPage() {
       const modificadoresParseados: ModificadorCatalogo[] =
         modificadoresGuardados ? JSON.parse(modificadoresGuardados) : [];
 
-      const productosParseados = productosGuardados
-        ? JSON.parse(productosGuardados)
-        : productosCatalogoBase;
-
       setModificadoresCatalogo(modificadoresParseados);
 
-      const productosAdaptados: Producto[] = productosParseados.map(
-        (producto: any) => {
-          const categoriaEncontrada = categoriasParseadas.find(
-            (cat) => Number(cat.id) === Number(producto.categoriaId)
-          );
+      let productosBase: Producto[] = (productosCatalogoBase as Producto[]).map(
+        (producto) => ({
+          ...producto,
+          categoria: normalizarCategoria((producto as any).categoria),
+        })
+      );
 
-          const categoria = normalizarCategoria(
-            producto.categoria ||
-              producto.categoriaNombre ||
-              categoriaEncontrada?.nombre
+      if (productosGuardados) {
+        const productosParseados: Producto[] = JSON.parse(productosGuardados);
+
+        productosBase = productosParseados.map((producto) => {
+          const categoriaEncontrada = categoriasParseadas.find(
+            (cat) => Number(cat.id) === Number((producto as any).categoriaId)
           );
 
           return {
-            id: Number(producto.id),
-            nombre: producto.nombre || "Producto",
-            descripcion: producto.descripcion || "",
-            categoriaId: producto.categoriaId
-              ? Number(producto.categoriaId)
-              : categoriaEncontrada?.id,
-            categoria,
-            precio: Number(producto.precio || 0),
-            costo: Number(producto.costo || 0),
-            imagen: producto.imagen || "",
-            activo: producto.activo !== false,
-            modificadores: Array.isArray(producto.modificadores)
-              ? producto.modificadores
-              : [],
-            usaVariantes: producto.usaVariantes === true,
-            variantes: Array.isArray(producto.variantes)
-              ? producto.variantes
-                  .filter((v: any) => v.activo !== false)
-                  .map((v: any) => ({
-                    id: Number(v.id),
-                    nombre: String(v.nombre || "Variante"),
-                    precio: Number(v.precio || 0),
-                    activo: v.activo !== false,
-                  }))
-              : [],
-            stock: Number(producto.stock || 0),
-            stockMinimo: Number(producto.stockMinimo || 0),
-            favorito: producto.favorito === true,
+            ...producto,
+            categoria: normalizarCategoria(
+              categoriaEncontrada?.nombre || (producto as any).categoria
+            ),
           };
-        }
+        });
+      }
+
+      const productosActivos = productosBase.filter(
+        (producto) => (producto as any).activo !== false
       );
 
+      setProductosVenta(productosActivos);
+    } catch (error) {
+      console.error("Error al cargar catálogo:", error);
+
       setProductosVenta(
-        productosAdaptados.filter((producto) => producto.activo !== false)
-      );
-    } catch {
-      setModificadoresCatalogo([]);
-      setProductosVenta(
-        productosCatalogoBase.filter((producto) => producto.activo !== false)
+        (productosCatalogoBase as Producto[]).map((producto) => ({
+          ...producto,
+          categoria: normalizarCategoria((producto as any).categoria),
+        }))
       );
     }
   };
-    const productosFiltrados = useMemo(() => {
-    const texto = busqueda.trim().toLowerCase();
 
+  const categoriasDisponibles = useMemo(() => {
+    const categorias = productosVenta
+      .map((producto) => (producto as any).categoria)
+      .filter(Boolean);
+
+    return ["Todos", ...Array.from(new Set(categorias))] as Categoria[];
+  }, [productosVenta]);
+
+  const productosFiltrados = useMemo(() => {
     return productosVenta.filter((producto) => {
+      const productoAny = producto as any;
       const coincideCategoria =
-        categoriaActiva === "Todos" || producto.categoria === categoriaActiva;
+        categoriaActiva === ("Todos" as Categoria) ||
+        productoAny.categoria === categoriaActiva;
 
-      const coincideBusqueda =
-        texto === "" || producto.nombre.toLowerCase().includes(texto);
+      const texto = `${productoAny.nombre || ""} ${
+        productoAny.descripcion || ""
+      }`
+        .toLowerCase()
+        .trim();
+
+      const coincideBusqueda = texto.includes(busqueda.toLowerCase().trim());
 
       return coincideCategoria && coincideBusqueda;
     });
   }, [productosVenta, categoriaActiva, busqueda]);
 
-  const total = useMemo(() => {
-    return carrito.reduce(
-      (suma, item) =>
-        suma + Number(item.precio || 0) * Number(item.cantidad || 1),
-      0
-    );
-  }, [carrito]);
+  const abrirProducto = (producto: Producto) => {
+    setProductoModal(producto);
+  };
 
-  const agregarProducto = (producto: Producto | ItemTicket) => {
-    const productoTicket = producto as ItemTicket;
+  const agregarProducto = (item: ItemTicket) => {
+    setCarrito((actual) => {
+      const itemAny = item as any;
+      const varianteId = itemAny.varianteSeleccionada?.id || 0;
+      const modificadoresKey = JSON.stringify(
+        itemAny.modificadoresSeleccionados || []
+      );
 
-    setCarrito((actual) => [
-      ...actual,
-      {
-        ...productoTicket,
-        cantidad: Number(productoTicket.cantidad || 1),
-      },
-    ]);
+      const existe = actual.findIndex((producto) => {
+        const productoAny = producto as any;
+        const varianteActual = productoAny.varianteSeleccionada?.id || 0;
+        const modificadoresActual = JSON.stringify(
+          productoAny.modificadoresSeleccionados || []
+        );
+
+        return (
+          Number(productoAny.id) === Number(itemAny.id) &&
+          Number(varianteActual) === Number(varianteId) &&
+          modificadoresActual === modificadoresKey
+        );
+      });
+
+      if (existe >= 0) {
+        return actual.map((producto, index) =>
+          index === existe
+            ? {
+                ...producto,
+                cantidad: Number((producto as any).cantidad || 1) + 1,
+              }
+            : producto
+        );
+      }
+
+      return [...actual, { ...(item as any), cantidad: 1 } as ItemTicket];
+    });
 
     setProductoModal(null);
   };
 
-  const manejarProducto = (producto: Producto) => {
-    const tieneVariantes =
-      producto.usaVariantes === true &&
-      Array.isArray(producto.variantes) &&
-      producto.variantes.length > 0;
-
-    const tieneModificadores =
-      Array.isArray(producto.modificadores) && producto.modificadores.length > 0;
-
-    const esCombo = producto.categoria === "COMBOS";
-
-    if (!tieneVariantes && !tieneModificadores && !esCombo) {
-      agregarProducto({
-        ...producto,
-        cantidad: 1,
-        precio: Number(producto.precio || 0),
-        precioFinal: Number(producto.precio || 0),
-        modificadoresSeleccionados: [],
-        bebidaSeleccionada: "",
-        notaCocina: "",
-      });
-
+  const cambiarCantidad = (index: number, cantidad: number) => {
+    if (cantidad <= 0) {
+      eliminarProducto(index);
       return;
     }
 
-    setProductoModal(producto);
-  };
-
-  const sumar = (index: number) => {
     setCarrito((actual) =>
-      actual.map((item, i) =>
-        i === index ? { ...item, cantidad: item.cantidad + 1 } : item
+      actual.map((item, itemIndex) =>
+        itemIndex === index ? ({ ...(item as any), cantidad } as ItemTicket) : item
       )
     );
   };
 
-  const restar = (index: number) => {
-    setCarrito((actual) =>
-      actual
-        .map((item, i) =>
-          i === index ? { ...item, cantidad: item.cantidad - 1 } : item
-        )
-        .filter((item) => item.cantidad > 0)
-    );
+  const eliminarProducto = (index: number) => {
+    setCarrito((actual) => actual.filter((_, itemIndex) => itemIndex !== index));
   };
 
-  const eliminar = (index: number) => {
-    setCarrito((actual) => actual.filter((_, i) => i !== index));
-  };
-
-  const limpiar = () => {
+  const limpiarVenta = () => {
     setCarrito([]);
     setTelefono("");
-    setPagoCon("");
     setMetodoPago("Efectivo");
+    setPagoCon("");
   };
 
-  const cobrar = () => {
-    const turnoActivo = obtenerTurnoActivo();
-    const sesion = JSON.parse(localStorage.getItem("usuario_sesion") || "null");
+  const subtotal = useMemo(() => {
+    return carrito.reduce((totalActual, item) => {
+      const itemAny = item as any;
+      const precioBase = Number(
+        itemAny.varianteSeleccionada?.precio || itemAny.precio || 0
+      );
 
-    if (!sesion) {
-      alert("Tu sesión terminó. Inicia sesión nuevamente.");
-      router.replace("/login");
+      const extras = (itemAny.modificadoresSeleccionados || []).reduce(
+        (acc: number, modificador: any) =>
+          acc + Number(modificador.precioExtra || 0),
+        0
+      );
+
+      return totalActual + (precioBase + extras) * Number(itemAny.cantidad || 1);
+    }, 0);
+  }, [carrito]);
+
+  const total = subtotal;
+
+  const cambio = useMemo(() => {
+    const recibido = Number(pagoCon || 0);
+
+    if (metodoPago !== "Efectivo") return 0;
+    if (recibido <= 0) return 0;
+
+    return Math.max(0, recibido - total);
+  }, [pagoCon, metodoPago, total]);
+
+  const finalizarVenta = async () => {
+    if (carrito.length === 0) {
+      alert("Agrega productos al ticket antes de cobrar.");
       return;
     }
+
+    const turnoActivo = obtenerTurnoActivo();
 
     if (!turnoActivo) {
-      alert("Debes abrir turno antes de cobrar.");
+      alert("Primero debes abrir turno antes de vender.");
+      router.push("/turno");
       return;
     }
 
-    if (carrito.length === 0) {
-      alert("Agrega productos al ticket");
+    if (metodoPago === "Efectivo" && Number(pagoCon || 0) < total) {
+      alert("El pago recibido es menor al total.");
       return;
     }
-
-    const pagoNumero = Number(pagoCon);
-
-    if (metodoPago === "Efectivo" && pagoCon && pagoNumero < total) {
-      alert("El pago no cubre el total");
-      return;
-    }
-
-    descontarInventarioPorReceta(carrito);
-
-    const ahora = new Date();
 
     const venta = {
       id: Date.now(),
       turnoId: turnoActivo.id,
-      cajero: sesion.nombre || turnoActivo.cajero || "Cajero",
-      cajeroRol: sesion.rol || "Cajero",
-      cajeroUsuario: sesion.usuario || "",
-      fecha: ahora.toLocaleString("es-MX"),
-      fechaISO: ahora.toISOString(),
-      fechaDia: ahora.toISOString().slice(0, 10),
+      fecha: new Date().toISOString(),
       productos: carrito,
-      subtotal: total,
+      subtotal,
       total,
       metodoPago,
+      pagoCon: metodoPago === "Efectivo" ? Number(pagoCon || 0) : total,
+      cambio,
       telefono,
-      estado: "pagado",
+      estado: "Pagada",
+      estadoCocina: "Pendiente",
+      cajero: turnoActivo.cajero || "Cajero",
     };
 
-    const ventasGuardadas = JSON.parse(localStorage.getItem("ventas") || "[]");
-    const ticketsGuardados = JSON.parse(localStorage.getItem("tickets") || "[]");
-    const cocinaGuardados = JSON.parse(
-      localStorage.getItem("pedidos_cocina") || "[]"
-    );
-    const turnoGuardados = JSON.parse(
-      localStorage.getItem("turno_ventas") || "[]"
-    );
+    try {
+      const ventasGuardadas = leerJson<any[]>("ventas", []);
+      const pedidosCocina = leerJson<any[]>("pedidos_cocina", []);
 
-    localStorage.setItem("ventas", JSON.stringify([venta, ...ventasGuardadas]));
-    localStorage.setItem("tickets", JSON.stringify([venta, ...ticketsGuardados]));
-    localStorage.setItem(
-      "pedidos_cocina",
-      JSON.stringify([{ ...venta, estado: "Pendiente" }, ...cocinaGuardados])
-    );
-    localStorage.setItem(
-      "turno_ventas",
-      JSON.stringify([venta, ...turnoGuardados])
-    );
+      localStorage.setItem("ventas", JSON.stringify([venta, ...ventasGuardadas]));
+      localStorage.setItem(
+        "pedidos_cocina",
+        JSON.stringify([venta, ...pedidosCocina])
+      );
 
-    alert("Venta cobrada correctamente");
-    limpiar();
+      descontarInventarioPorReceta(carrito);
+
+      const { error } = await supabase.from("ventas").insert({
+        total: venta.total,
+        metodo_pago: venta.metodoPago,
+        productos: venta.productos,
+        telefono: venta.telefono,
+        fecha: venta.fecha,
+        estado: venta.estado,
+      });
+
+      if (error) {
+        console.error("Error Supabase:", error);
+      }
+
+      limpiarVenta();
+      alert("Venta cobrada correctamente.");
+    } catch (error) {
+      console.error("Error al guardar venta:", error);
+      alert("Hubo un error al guardar la venta.");
+    }
   };
 
   if (cargandoSesion) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-[#F3F8F2] text-gray-900">
-        <div className="rounded-3xl bg-white px-8 py-6 text-center shadow-xl ring-1 ring-gray-200">
-          <div className="text-4xl">🔐</div>
-          <p className="mt-3 text-lg font-black">Verificando sesión...</p>
-        </div>
+      <main className="min-h-screen bg-zinc-950 text-white flex items-center justify-center">
+        <p className="text-zinc-400">Cargando ventas...</p>
       </main>
     );
   }
 
   return (
-    <main className="min-h-screen w-full overflow-x-hidden bg-[#F3F8F2] text-gray-900">
-      <HeaderVentas />
+    <main className="min-h-screen bg-zinc-950 text-white">
+      <div className="grid grid-cols-[1fr_420px] min-h-screen">
+        <section className="p-8 space-y-6">
+          <HeaderVentasAny busqueda={busqueda} setBusqueda={setBusqueda} />
 
-      <section className="grid w-full grid-cols-1 xl:grid-cols-[minmax(0,1fr)_420px]">
-        <div className="min-w-0 p-5 sm:p-8">
-          <Categorias
+          <CategoriasAny
+            categorias={categoriasDisponibles}
             categoriaActiva={categoriaActiva}
             setCategoriaActiva={setCategoriaActiva}
           />
 
-          <div className="mb-6">
-            <input
-              value={busqueda}
-              onChange={(e) => setBusqueda(e.target.value)}
-              placeholder="Buscar producto..."
-              className="w-full rounded-2xl border border-gray-300 bg-white px-5 py-4 text-gray-900 shadow-sm outline-none transition focus:border-green-500 focus:ring-4 focus:ring-green-100"
-            />
-          </div>
+          <ProductoGridAny productos={productosFiltrados} onAgregar={abrirProducto} />
+        </section>
 
-          <ProductoGrid
-            productos={productosFiltrados}
-            onAgregar={manejarProducto}
-          />
-        </div>
-
-        <aside className="min-w-0 border-t border-gray-200 bg-white xl:border-l xl:border-t-0">
-          <Ticket
-            telefono={telefono}
-            setTelefono={setTelefono}
-            carrito={carrito}
-            metodoPago={metodoPago}
-            setMetodoPago={setMetodoPago}
-            pagoCon={pagoCon}
-            setPagoCon={setPagoCon}
-            onSumar={sumar}
-            onRestar={restar}
-            onEliminar={eliminar}
-            onLimpiar={limpiar}
-            onCobrar={cobrar}
-          />
-        </aside>
-      </section>
+        <TicketAny
+          carrito={carrito}
+          total={total}
+          subtotal={subtotal}
+          metodoPago={metodoPago}
+          setMetodoPago={setMetodoPago}
+          pagoCon={pagoCon}
+          setPagoCon={setPagoCon}
+          cambio={cambio}
+          telefono={telefono}
+          setTelefono={setTelefono}
+          onCambiarCantidad={cambiarCantidad}
+          onEliminar={eliminarProducto}
+          onLimpiar={limpiarVenta}
+          onFinalizar={finalizarVenta}
+        />
+      </div>
 
       {productoModal && (
-        <ProductoModal
+        <ProductoModalAny
           producto={productoModal}
           modificadoresCatalogo={modificadoresCatalogo}
-          onClose={() => setProductoModal(null)}
+          onCerrar={() => setProductoModal(null)}
           onAgregar={agregarProducto}
         />
       )}
