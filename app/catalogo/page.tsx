@@ -6,7 +6,6 @@ import { Categoria, Modificador, Producto } from "./types";
 import {
   categorias as categoriasBase,
   modificadores as modificadoresBase,
-  productos as productosBase,
 } from "./data";
 
 import TabsCatalogo from "./TabsCatalogo";
@@ -18,6 +17,19 @@ import ModalCategoria from "./ModalCategoria";
 import ModalModificador from "./ModalModificador";
 
 type Tab = "productos" | "categorias" | "modificadores";
+
+const leerStorage = <T,>(clave: string, valorDefault: T): T => {
+  try {
+    if (typeof window === "undefined") return valorDefault;
+
+    const data = localStorage.getItem(clave);
+    if (!data) return valorDefault;
+
+    return JSON.parse(data) as T;
+  } catch {
+    return valorDefault;
+  }
+};
 
 export default function CatalogoPage() {
   const [tab, setTab] = useState<Tab>("productos");
@@ -31,43 +43,41 @@ export default function CatalogoPage() {
   const [modalCategoria, setModalCategoria] = useState(false);
   const [modalModificador, setModalModificador] = useState(false);
 
-  const [productoEditando, setProductoEditando] = useState<Producto | null>(null);
-  const [categoriaEditando, setCategoriaEditando] = useState<Categoria | null>(null);
+  const [productoEditando, setProductoEditando] = useState<Producto | null>(
+    null
+  );
+  const [categoriaEditando, setCategoriaEditando] =
+    useState<Categoria | null>(null);
   const [modificadorEditando, setModificadorEditando] =
     useState<Modificador | null>(null);
 
   useEffect(() => {
-    try {
-      const productosGuardados = localStorage.getItem("catalogo_productos");
-      const categoriasGuardadas = localStorage.getItem("catalogo_categorias");
-      const modificadoresGuardados = localStorage.getItem(
-        "catalogo_modificadores"
-      );
+    const productosGuardados = leerStorage<Producto[]>(
+      "catalogo_productos",
+      []
+    );
 
-      setProductos(
-        productosGuardados && JSON.parse(productosGuardados).length > 0
-          ? JSON.parse(productosGuardados)
-          : productosBase
-      );
+    const categoriasGuardadas = leerStorage<Categoria[]>(
+      "catalogo_categorias",
+      categoriasBase
+    );
 
-      setCategorias(
-        categoriasGuardadas && JSON.parse(categoriasGuardadas).length > 0
-          ? JSON.parse(categoriasGuardadas)
-          : categoriasBase
-      );
+    const modificadoresGuardados = leerStorage<Modificador[]>(
+      "catalogo_modificadores",
+      modificadoresBase
+    );
 
-      setModificadores(
-        modificadoresGuardados && JSON.parse(modificadoresGuardados).length > 0
-          ? JSON.parse(modificadoresGuardados)
-          : modificadoresBase
-      );
-    } catch {
-      setProductos(productosBase);
-      setCategorias(categoriasBase);
-      setModificadores(modificadoresBase);
-    } finally {
-      setCargado(true);
-    }
+    setProductos(Array.isArray(productosGuardados) ? productosGuardados : []);
+    setCategorias(
+      Array.isArray(categoriasGuardadas) ? categoriasGuardadas : categoriasBase
+    );
+    setModificadores(
+      Array.isArray(modificadoresGuardados)
+        ? modificadoresGuardados
+        : modificadoresBase
+    );
+
+    setCargado(true);
   }, []);
 
   useEffect(() => {
@@ -90,11 +100,11 @@ export default function CatalogoPage() {
 
   const guardarProducto = (producto: Producto) => {
     setProductos((prev) => {
-      const existe = prev.some((item) => item.id === producto.id);
+      const existe = prev.some((item) => Number(item.id) === Number(producto.id));
 
       if (existe) {
         return prev.map((item) =>
-          item.id === producto.id ? producto : item
+          Number(item.id) === Number(producto.id) ? producto : item
         );
       }
 
@@ -107,11 +117,13 @@ export default function CatalogoPage() {
 
   const guardarCategoria = (categoria: Categoria) => {
     setCategorias((prev) => {
-      const existe = prev.some((item) => item.id === categoria.id);
+      const existe = prev.some(
+        (item) => Number(item.id) === Number(categoria.id)
+      );
 
       if (existe) {
         return prev.map((item) =>
-          item.id === categoria.id ? categoria : item
+          Number(item.id) === Number(categoria.id) ? categoria : item
         );
       }
 
@@ -124,11 +136,13 @@ export default function CatalogoPage() {
 
   const guardarModificador = (modificador: Modificador) => {
     setModificadores((prev) => {
-      const existe = prev.some((item) => item.id === modificador.id);
+      const existe = prev.some(
+        (item) => Number(item.id) === Number(modificador.id)
+      );
 
       if (existe) {
         return prev.map((item) =>
-          item.id === modificador.id ? modificador : item
+          Number(item.id) === Number(modificador.id) ? modificador : item
         );
       }
 
@@ -140,15 +154,28 @@ export default function CatalogoPage() {
   };
 
   const eliminarProducto = (id: number) => {
-    setProductos((prev) => prev.filter((item) => item.id !== id));
+    const confirmar = confirm("¿Eliminar este producto del catálogo?");
+    if (!confirmar) return;
+
+    setProductos((prev) => prev.filter((item) => Number(item.id) !== Number(id)));
   };
 
   const eliminarCategoria = (id: number) => {
-    setCategorias((prev) => prev.filter((item) => item.id !== id));
+    const confirmar = confirm("¿Eliminar esta categoría?");
+    if (!confirmar) return;
+
+    setCategorias((prev) =>
+      prev.filter((item) => Number(item.id) !== Number(id))
+    );
   };
 
   const eliminarModificador = (id: number) => {
-    setModificadores((prev) => prev.filter((item) => item.id !== id));
+    const confirmar = confirm("¿Eliminar este modificador?");
+    if (!confirmar) return;
+
+    setModificadores((prev) =>
+      prev.filter((item) => Number(item.id) !== Number(id))
+    );
   };
 
   return (
