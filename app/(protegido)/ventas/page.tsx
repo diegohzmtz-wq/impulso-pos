@@ -282,12 +282,7 @@ export default function VentasPage() {
 
       setModificadoresCatalogo(modificadoresParseados);
 
-      let productosBase: Producto[] = (productosCatalogoBase as Producto[]).map(
-        (producto) => ({
-          ...producto,
-          categoria: normalizarCategoria((producto as any).categoria),
-        })
-      );
+      let productosBase: Producto[] = [];
 
       if (productosGuardados) {
         const productosParseados: Producto[] = JSON.parse(productosGuardados);
