@@ -512,17 +512,16 @@ export default function VentasPage() {
       alert("Hubo un error al guardar la venta.");
     }
   };
-
-  if (cargandoSesion) {
-    return (
-      <main className="min-h-screen bg-zinc-950 text-white flex items-center justify-center">
-        <p className="text-zinc-400">Cargando ventas...</p>
-      </main>
-    );
-  }
-
+if (cargandoSesion) {
   return (
-    <main className="min-h-screen bg-zinc-950 text-white">
+    <main className="min-h-screen bg-gray-100 text-slate-900 flex items-center justify-center">
+      <p className="text-slate-500">Cargando ventas...</p>
+    </main>
+  );
+}
+
+return (
+  <main className="min-h-screen bg-gray-100 text-slate-900">
       <div className="grid grid-cols-[1fr_420px] min-h-screen">
         <section className="p-8 space-y-6">
           <HeaderVentasAny busqueda={busqueda} setBusqueda={setBusqueda} />
