@@ -1,12 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { supabase } from "@/lib/supabase";
 
 import { Categoria, Modificador, Producto } from "./types";
-import {
-  categorias as categoriasBase,
-  modificadores as modificadoresBase,
-} from "./data";
 
 import TabsCatalogo from "./TabsCatalogo";
 import TablaProductos from "./TablaProductos";
@@ -18,26 +15,13 @@ import ModalModificador from "./ModalModificador";
 
 type Tab = "productos" | "categorias" | "modificadores";
 
-const leerStorage = <T,>(clave: string, valorDefault: T): T => {
-  try {
-    if (typeof window === "undefined") return valorDefault;
-
-    const data = localStorage.getItem(clave);
-    if (!data) return valorDefault;
-
-    return JSON.parse(data) as T;
-  } catch {
-    return valorDefault;
-  }
-};
-
 export default function CatalogoPage() {
   const [tab, setTab] = useState<Tab>("productos");
 
   const [productos, setProductos] = useState<Producto[]>([]);
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [modificadores, setModificadores] = useState<Modificador[]>([]);
-  const [cargado, setCargado] = useState(false);
+  const [cargando, setCargando] = useState(true);
 
   const [modalProducto, setModalProducto] = useState(false);
   const [modalCategoria, setModalCategoria] = useState(false);
@@ -52,130 +36,306 @@ export default function CatalogoPage() {
     useState<Modificador | null>(null);
 
   useEffect(() => {
-    const productosGuardados = leerStorage<Producto[]>(
-      "catalogo_productos",
-      []
-    );
-
-    const categoriasGuardadas = leerStorage<Categoria[]>(
-      "catalogo_categorias",
-      categoriasBase
-    );
-
-    const modificadoresGuardados = leerStorage<Modificador[]>(
-      "catalogo_modificadores",
-      modificadoresBase
-    );
-
-    setProductos(Array.isArray(productosGuardados) ? productosGuardados : []);
-    setCategorias(
-      Array.isArray(categoriasGuardadas) ? categoriasGuardadas : categoriasBase
-    );
-    setModificadores(
-      Array.isArray(modificadoresGuardados)
-        ? modificadoresGuardados
-        : modificadoresBase
-    );
-
-    setCargado(true);
+    cargarDatosSupabase();
   }, []);
 
-  useEffect(() => {
-    if (!cargado) return;
-    localStorage.setItem("catalogo_productos", JSON.stringify(productos));
-  }, [productos, cargado]);
+  const cargarDatosSupabase = async () => {
+    try {
+      setCargando(true);
 
-  useEffect(() => {
-    if (!cargado) return;
-    localStorage.setItem("catalogo_categorias", JSON.stringify(categorias));
-  }, [categorias, cargado]);
+      const { data: categoriasData, error: errorCategorias } = await supabase
+        .from("catalogo_categorias")
+        .select("*")
+        .order("orden", { ascending: true });
 
-  useEffect(() => {
-    if (!cargado) return;
-    localStorage.setItem(
-      "catalogo_modificadores",
-      JSON.stringify(modificadores)
-    );
-  }, [modificadores, cargado]);
+      if (errorCategorias) throw errorCategorias;
 
-  const guardarProducto = (producto: Producto) => {
-    setProductos((prev) => {
-      const existe = prev.some((item) => Number(item.id) === Number(producto.id));
+      const { data: modificadoresData, error: errorModificadores } =
+        await supabase
+          .from("catalogo_modificadores")
+          .select("*")
+          .order("orden", { ascending: true });
 
-      if (existe) {
-        return prev.map((item) =>
-          Number(item.id) === Number(producto.id) ? producto : item
-        );
-      }
+      if (errorModificadores) throw errorModificadores;
 
-      return [producto, ...prev];
-    });
+      const { data: productosData, error: errorProductos } = await supabase
+        .from("catalogo_productos")
+        .select(
+          `
+          *,
+          catalogo_variantes (*),
+          producto_modificadores (modificador_id)
+        `
+        )
+        .order("id", { ascending: false });
 
-    setModalProducto(false);
-    setProductoEditando(null);
-  };
+      if (errorProductos) throw errorProductos;
 
-  const guardarCategoria = (categoria: Categoria) => {
-    setCategorias((prev) => {
-      const existe = prev.some(
-        (item) => Number(item.id) === Number(categoria.id)
+      setCategorias(
+        (categoriasData || []).map((cat: any) => ({
+          id: Number(cat.id),
+          nombre: cat.nombre,
+          activo: cat.activo ?? true,
+          orden: Number(cat.orden || 0),
+        }))
       );
 
-      if (existe) {
-        return prev.map((item) =>
-          Number(item.id) === Number(categoria.id) ? categoria : item
-        );
-      }
-
-      return [categoria, ...prev];
-    });
-
-    setModalCategoria(false);
-    setCategoriaEditando(null);
-  };
-
-  const guardarModificador = (modificador: Modificador) => {
-    setModificadores((prev) => {
-      const existe = prev.some(
-        (item) => Number(item.id) === Number(modificador.id)
+      setModificadores(
+        (modificadoresData || []).map((mod: any) => ({
+          id: Number(mod.id),
+          nombre: mod.nombre,
+          tipo: mod.tipo || "Agregar",
+          precioExtra: Number(mod.precio_extra || 0),
+          ingredienteId: mod.ingrediente_id
+            ? Number(mod.ingrediente_id)
+            : undefined,
+          cantidadInventario: Number(mod.cantidad_inventario || 0),
+          activo: mod.activo ?? true,
+          orden: Number(mod.orden || 0),
+        }))
       );
 
-      if (existe) {
-        return prev.map((item) =>
-          Number(item.id) === Number(modificador.id) ? modificador : item
-        );
-      }
-
-      return [modificador, ...prev];
-    });
-
-    setModalModificador(false);
-    setModificadorEditando(null);
+      setProductos(
+        (productosData || []).map((producto: any) => ({
+          id: Number(producto.id),
+          nombre: producto.nombre,
+          descripcion: producto.descripcion || "",
+          categoriaId: Number(producto.categoria_id || 0),
+          precio: Number(producto.precio || 0),
+          costo: Number(producto.costo || 0),
+          imagen: producto.imagen || "",
+          activo: producto.activo ?? true,
+          usaVariantes: producto.usa_variantes ?? false,
+          stock: Number(producto.stock || 0),
+          stockMinimo: Number(producto.stock_minimo || 0),
+          favorito: producto.favorito ?? false,
+          modificadores: (producto.producto_modificadores || []).map(
+            (rel: any) => Number(rel.modificador_id)
+          ),
+          variantes: (producto.catalogo_variantes || []).map((v: any) => ({
+            id: Number(v.id),
+            nombre: v.nombre,
+            precio: Number(v.precio || 0),
+            activo: v.activo ?? true,
+          })),
+        }))
+      );
+    } catch (error) {
+      console.error("Error cargando catálogo:", error);
+      alert("No se pudo cargar el catálogo desde Supabase.");
+    } finally {
+      setCargando(false);
+    }
   };
 
-  const eliminarProducto = (id: number) => {
+  const guardarProducto = async (producto: Producto) => {
+    try {
+      const esNuevo = !productoEditando;
+
+      const payload = {
+        nombre: producto.nombre,
+        descripcion: producto.descripcion || "",
+        categoria_id: producto.categoriaId,
+        precio: producto.precio,
+        costo: producto.costo,
+        imagen: producto.imagen || "",
+        activo: producto.activo,
+        usa_variantes: producto.usaVariantes,
+        stock: producto.stock || 0,
+        stock_minimo: producto.stockMinimo || 0,
+        favorito: producto.favorito || false,
+      };
+
+      let productoId = producto.id;
+
+      if (esNuevo) {
+        const { data, error } = await supabase
+          .from("catalogo_productos")
+          .insert(payload)
+          .select("id")
+          .single();
+
+        if (error) throw error;
+        productoId = Number(data.id);
+      } else {
+        const { error } = await supabase
+          .from("catalogo_productos")
+          .update(payload)
+          .eq("id", producto.id);
+
+        if (error) throw error;
+      }
+
+      await supabase
+        .from("catalogo_variantes")
+        .delete()
+        .eq("producto_id", productoId);
+
+      if (producto.usaVariantes && producto.variantes.length > 0) {
+        const variantesPayload = producto.variantes.map((variante) => ({
+          producto_id: productoId,
+          nombre: variante.nombre,
+          precio: variante.precio,
+          activo: variante.activo,
+        }));
+
+        const { error } = await supabase
+          .from("catalogo_variantes")
+          .insert(variantesPayload);
+
+        if (error) throw error;
+      }
+
+      await supabase
+        .from("producto_modificadores")
+        .delete()
+        .eq("producto_id", productoId);
+
+      if (producto.modificadores.length > 0) {
+        const relaciones = producto.modificadores.map((modificadorId) => ({
+          producto_id: productoId,
+          modificador_id: modificadorId,
+        }));
+
+        const { error } = await supabase
+          .from("producto_modificadores")
+          .insert(relaciones);
+
+        if (error) throw error;
+      }
+
+      setModalProducto(false);
+      setProductoEditando(null);
+      await cargarDatosSupabase();
+    } catch (error) {
+      console.error("Error guardando producto:", error);
+      alert("No se pudo guardar el producto.");
+    }
+  };
+
+  const guardarCategoria = async (categoria: Categoria) => {
+    try {
+      const payload = {
+        nombre: categoria.nombre,
+        activo: categoria.activo,
+        orden: categoria.orden || 0,
+      };
+
+      if (categoriaEditando) {
+        const { error } = await supabase
+          .from("catalogo_categorias")
+          .update(payload)
+          .eq("id", categoria.id);
+
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from("catalogo_categorias")
+          .insert(payload);
+
+        if (error) throw error;
+      }
+
+      setModalCategoria(false);
+      setCategoriaEditando(null);
+      await cargarDatosSupabase();
+    } catch (error) {
+      console.error("Error guardando categoría:", error);
+      alert("No se pudo guardar la categoría.");
+    }
+  };
+
+  const guardarModificador = async (modificador: Modificador) => {
+    try {
+      const payload = {
+        nombre: modificador.nombre,
+        tipo: modificador.tipo,
+        precio_extra: modificador.precioExtra || 0,
+        ingrediente_id: modificador.ingredienteId || null,
+        cantidad_inventario: modificador.cantidadInventario || 0,
+        activo: modificador.activo,
+        orden: modificador.orden || 0,
+      };
+
+      if (modificadorEditando) {
+        const { error } = await supabase
+          .from("catalogo_modificadores")
+          .update(payload)
+          .eq("id", modificador.id);
+
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from("catalogo_modificadores")
+          .insert(payload);
+
+        if (error) throw error;
+      }
+
+      setModalModificador(false);
+      setModificadorEditando(null);
+      await cargarDatosSupabase();
+    } catch (error) {
+      console.error("Error guardando modificador:", error);
+      alert("No se pudo guardar el modificador.");
+    }
+  };
+
+  const eliminarProducto = async (id: number) => {
     const confirmar = confirm("¿Eliminar este producto del catálogo?");
     if (!confirmar) return;
 
-    setProductos((prev) => prev.filter((item) => Number(item.id) !== Number(id)));
+    try {
+      const { error } = await supabase
+        .from("catalogo_productos")
+        .delete()
+        .eq("id", id);
+
+      if (error) throw error;
+
+      await cargarDatosSupabase();
+    } catch (error) {
+      console.error("Error eliminando producto:", error);
+      alert("No se pudo eliminar el producto.");
+    }
   };
 
-  const eliminarCategoria = (id: number) => {
+  const eliminarCategoria = async (id: number) => {
     const confirmar = confirm("¿Eliminar esta categoría?");
     if (!confirmar) return;
 
-    setCategorias((prev) =>
-      prev.filter((item) => Number(item.id) !== Number(id))
-    );
+    try {
+      const { error } = await supabase
+        .from("catalogo_categorias")
+        .delete()
+        .eq("id", id);
+
+      if (error) throw error;
+
+      await cargarDatosSupabase();
+    } catch (error) {
+      console.error("Error eliminando categoría:", error);
+      alert("No se pudo eliminar la categoría.");
+    }
   };
 
-  const eliminarModificador = (id: number) => {
+  const eliminarModificador = async (id: number) => {
     const confirmar = confirm("¿Eliminar este modificador?");
     if (!confirmar) return;
 
-    setModificadores((prev) =>
-      prev.filter((item) => Number(item.id) !== Number(id))
-    );
+    try {
+      const { error } = await supabase
+        .from("catalogo_modificadores")
+        .delete()
+        .eq("id", id);
+
+      if (error) throw error;
+
+      await cargarDatosSupabase();
+    } catch (error) {
+      console.error("Error eliminando modificador:", error);
+      alert("No se pudo eliminar el modificador.");
+    }
   };
 
   return (
@@ -190,6 +350,12 @@ export default function CatalogoPage() {
             Administra productos, categorías y modificadores del POS
           </p>
         </div>
+
+        {cargando && (
+          <div className="mb-6 rounded-3xl border border-slate-200 bg-white p-5 text-sm font-bold text-slate-500 shadow-sm">
+            Cargando catálogo desde Supabase...
+          </div>
+        )}
 
         <section className="mb-8 grid grid-cols-1 gap-5 md:grid-cols-4">
           <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
