@@ -10,8 +10,6 @@ import ProductoGrid from "./ProductoGrid";
 import Ticket from "./Ticket";
 import ProductoModal from "./ProductoModal";
 
-import { productosCatalogoBase } from "./data";
-
 import {
   Categoria,
   CategoriaCatalogo,
@@ -107,6 +105,7 @@ const quitarDescuento = (
   cantidad: number
 ) => {
   if (!ingredienteId || cantidad <= 0) return;
+
   descuentos[ingredienteId] = Math.max(
     0,
     (descuentos[ingredienteId] || 0) - cantidad
@@ -124,6 +123,7 @@ const descontarInventarioPorReceta = (carrito: ItemTicket[]) => {
   carrito.forEach((item) => {
     const itemAny = item as any;
     const cantidadVendida = Number(itemAny.cantidad || 1);
+
     const receta = recetas.find(
       (r) => Number(r.productoId) === Number(itemAny.id)
     );
@@ -148,44 +148,6 @@ const descontarInventarioPorReceta = (carrito: ItemTicket[]) => {
           Number(ing.cantidad || 0) * cantidadVendida
         );
       });
-    } else {
-      const texto = `${itemAny.nombre || ""} ${
-        itemAny.varianteSeleccionada?.nombre || ""
-      }`.toLowerCase();
-
-      const esHamburguesa =
-        texto.includes("hamburguesa") ||
-        texto.includes("burger") ||
-        itemAny.categoria === "HAMBURGUESAS" ||
-        itemAny.categoria === "COMBOS";
-
-      if (esHamburguesa) {
-        const esDoble = texto.includes("doble");
-        const esCombo = texto.includes("combo") || itemAny.categoria === "COMBOS";
-
-        const ingredientesFallback = [
-          { ingredienteId: 1, cantidad: 1 },
-          { ingredienteId: 2, cantidad: esDoble ? 2 : 1 },
-          { ingredienteId: 3, cantidad: esDoble ? 2 : 1 },
-          { ingredienteId: 6, cantidad: 20 },
-          { ingredienteId: 7, cantidad: 20 },
-          { ingredienteId: 8, cantidad: 10 },
-          ...(esCombo
-            ? [
-                { ingredienteId: 9, cantidad: 150 },
-                { ingredienteId: 10, cantidad: 1 },
-              ]
-            : []),
-        ];
-
-        ingredientesFallback.forEach((ing) => {
-          agregarDescuento(
-            descuentosPorIngrediente,
-            ing.ingredienteId,
-            ing.cantidad * cantidadVendida
-          );
-        });
-      }
     }
 
     const modificadores = (itemAny.modificadoresSeleccionados || []) as any[];
@@ -234,6 +196,8 @@ export default function VentasPage() {
   const router = useRouter();
 
   const [cargandoSesion, setCargandoSesion] = useState(true);
+  const [cargandoCatalogo, setCargandoCatalogo] = useState(false);
+
   const [productosVenta, setProductosVenta] = useState<Producto[]>([]);
   const [modificadoresCatalogo, setModificadoresCatalogo] = useState<
     ModificadorCatalogo[]
@@ -242,6 +206,7 @@ export default function VentasPage() {
   const [categoriaActiva, setCategoriaActiva] = useState<Categoria>(
     "Todos" as Categoria
   );
+
   const [busqueda, setBusqueda] = useState("");
   const [carrito, setCarrito] = useState<ItemTicket[]>([]);
   const [productoModal, setProductoModal] = useState<Producto | null>(null);
@@ -264,57 +229,107 @@ export default function VentasPage() {
   useEffect(() => {
     if (!cargandoSesion) cargarCatalogo();
   }, [cargandoSesion]);
-
-  const cargarCatalogo = () => {
+    const cargarCatalogo = async () => {
     try {
-      const productosGuardados = localStorage.getItem("catalogo_productos");
-      const categoriasGuardadas = localStorage.getItem("catalogo_categorias");
-      const modificadoresGuardados = localStorage.getItem(
-        "catalogo_modificadores"
-      );
+      setCargandoCatalogo(true);
 
-      const categoriasParseadas: CategoriaCatalogo[] = categoriasGuardadas
-        ? JSON.parse(categoriasGuardadas)
-        : categoriasDefault;
+      const { data: categoriasData, error: errorCategorias } = await supabase
+        .from("catalogo_categorias")
+        .select("*")
+        .order("orden", { ascending: true });
 
-      const modificadoresParseados: ModificadorCatalogo[] =
-        modificadoresGuardados ? JSON.parse(modificadoresGuardados) : [];
+      if (errorCategorias) throw errorCategorias;
 
-      setModificadoresCatalogo(modificadoresParseados);
+      const { data: modificadoresData, error: errorModificadores } =
+        await supabase
+          .from("catalogo_modificadores")
+          .select("*")
+          .order("orden", { ascending: true });
 
-      let productosBase: Producto[] = [];
+      if (errorModificadores) throw errorModificadores;
 
-      if (productosGuardados) {
-        const productosParseados: Producto[] = JSON.parse(productosGuardados);
+      const { data: productosData, error: errorProductos } = await supabase
+        .from("catalogo_productos")
+        .select(
+          `
+          *,
+          catalogo_variantes (*),
+          producto_modificadores (modificador_id)
+        `
+        )
+        .eq("activo", true)
+        .order("id", { ascending: false });
 
-        productosBase = productosParseados.map((producto) => {
-          const categoriaEncontrada = categoriasParseadas.find(
-            (cat) => Number(cat.id) === Number((producto as any).categoriaId)
+      if (errorProductos) throw errorProductos;
+
+      const categorias: CategoriaCatalogo[] =
+        (categoriasData || categoriasDefault).map((cat: any) => ({
+          id: Number(cat.id),
+          nombre: cat.nombre,
+          activo: cat.activo ?? true,
+          orden: Number(cat.orden || 0),
+        }));
+
+      const modificadores: ModificadorCatalogo[] = (
+        modificadoresData || []
+      ).map((mod: any) => ({
+        id: Number(mod.id),
+        nombre: mod.nombre,
+        tipo: mod.tipo || "Agregar",
+        precioExtra: Number(mod.precio_extra || 0),
+        ingredienteId: mod.ingrediente_id
+          ? Number(mod.ingrediente_id)
+          : undefined,
+        cantidadInventario: Number(mod.cantidad_inventario || 0),
+        activo: mod.activo ?? true,
+        orden: Number(mod.orden || 0),
+      }));
+
+      const productos: Producto[] = (productosData || []).map(
+        (producto: any) => {
+          const categoriaEncontrada = categorias.find(
+            (cat) => Number(cat.id) === Number(producto.categoria_id)
           );
 
           return {
-            ...producto,
-            categoria: normalizarCategoria(
-              categoriaEncontrada?.nombre || (producto as any).categoria
+            id: Number(producto.id),
+            nombre: producto.nombre,
+            descripcion: producto.descripcion || "",
+            categoriaId: Number(producto.categoria_id || 0),
+            categoria: normalizarCategoria(categoriaEncontrada?.nombre),
+            precio: Number(producto.precio || 0),
+            costo: Number(producto.costo || 0),
+            imagen: producto.imagen || "",
+            activo: producto.activo ?? true,
+            modificadores: (producto.producto_modificadores || []).map(
+              (rel: any) => Number(rel.modificador_id)
             ),
-          };
-        });
-      }
-
-      const productosActivos = productosBase.filter(
-        (producto) => (producto as any).activo !== false
+            usaVariantes: producto.usa_variantes ?? false,
+            variantes: (producto.catalogo_variantes || []).map((v: any) => ({
+              id: Number(v.id),
+              nombre: v.nombre,
+              precio: Number(v.precio || 0),
+              activo: v.activo ?? true,
+            })),
+            stock: Number(producto.stock || 0),
+            stockMinimo: Number(producto.stock_minimo || 0),
+            favorito: producto.favorito ?? false,
+          } as Producto;
+        }
       );
 
-      setProductosVenta(productosActivos);
+      setModificadoresCatalogo(
+        modificadores.filter((mod) => mod.activo !== false)
+      );
+
+      setProductosVenta(productos.filter((producto) => producto.activo !== false));
     } catch (error) {
-      console.error("Error al cargar catálogo:", error);
-
-      setProductosVenta(
-        (productosCatalogoBase as Producto[]).map((producto) => ({
-          ...producto,
-          categoria: normalizarCategoria((producto as any).categoria),
-        }))
-      );
+      console.error("Error cargando catálogo desde Supabase:", error);
+      alert("No se pudo cargar el catálogo desde Supabase.");
+      setProductosVenta([]);
+      setModificadoresCatalogo([]);
+    } finally {
+      setCargandoCatalogo(false);
     }
   };
 
@@ -329,6 +344,7 @@ export default function VentasPage() {
   const productosFiltrados = useMemo(() => {
     return productosVenta.filter((producto) => {
       const productoAny = producto as any;
+
       const coincideCategoria =
         categoriaActiva === ("Todos" as Categoria) ||
         productoAny.categoria === categoriaActiva;
@@ -353,6 +369,7 @@ export default function VentasPage() {
     setCarrito((actual) => {
       const itemAny = item as any;
       const varianteId = itemAny.varianteSeleccionada?.id || 0;
+
       const modificadoresKey = JSON.stringify(
         itemAny.modificadoresSeleccionados || []
       );
@@ -360,6 +377,7 @@ export default function VentasPage() {
       const existe = actual.findIndex((producto) => {
         const productoAny = producto as any;
         const varianteActual = productoAny.varianteSeleccionada?.id || 0;
+
         const modificadoresActual = JSON.stringify(
           productoAny.modificadoresSeleccionados || []
         );
@@ -376,13 +394,19 @@ export default function VentasPage() {
           index === existe
             ? {
                 ...producto,
-                cantidad: Number((producto as any).cantidad || 1) + 1,
+                cantidad: Number((producto as any).cantidad || 1) + Number(itemAny.cantidad || 1),
               }
             : producto
         );
       }
 
-      return [...actual, { ...(item as any), cantidad: 1 } as ItemTicket];
+      return [
+        ...actual,
+        {
+          ...(item as any),
+          cantidad: Number(itemAny.cantidad || 1),
+        } as ItemTicket,
+      ];
     });
 
     setProductoModal(null);
@@ -411,10 +435,10 @@ export default function VentasPage() {
     setMetodoPago("Efectivo");
     setPagoCon("");
   };
-
-  const subtotal = useMemo(() => {
+    const subtotal = useMemo(() => {
     return carrito.reduce((totalActual, item) => {
       const itemAny = item as any;
+
       const precioBase = Number(
         itemAny.varianteSeleccionada?.precio || itemAny.precio || 0
       );
@@ -497,7 +521,8 @@ export default function VentasPage() {
       });
 
       if (error) {
-        console.error("Error Supabase:", error);
+        console.error("Error Supabase ventas:", error);
+        alert("La venta se guardó localmente, pero no se pudo guardar en Supabase.");
       }
 
       limpiarVenta();
@@ -507,19 +532,26 @@ export default function VentasPage() {
       alert("Hubo un error al guardar la venta.");
     }
   };
-if (cargandoSesion) {
-  return (
-    <main className="min-h-screen bg-gray-100 text-slate-900 flex items-center justify-center">
-      <p className="text-slate-500">Cargando ventas...</p>
-    </main>
-  );
-}
 
-return (
-  <main className="min-h-screen bg-gray-100 text-slate-900">
-      <div className="grid grid-cols-[1fr_420px] min-h-screen">
-        <section className="p-8 space-y-6">
+  if (cargandoSesion) {
+    return (
+      <main className="min-h-screen bg-gray-100 text-slate-900 flex items-center justify-center">
+        <p className="text-slate-500">Cargando ventas...</p>
+      </main>
+    );
+  }
+
+  return (
+    <main className="min-h-screen bg-gray-100 text-slate-900">
+      <div className="grid min-h-screen grid-cols-[1fr_420px]">
+        <section className="space-y-6 p-8">
           <HeaderVentasAny busqueda={busqueda} setBusqueda={setBusqueda} />
+
+          {cargandoCatalogo && (
+            <div className="rounded-3xl border border-slate-200 bg-white p-4 text-sm font-bold text-slate-500 shadow-sm">
+              Cargando productos desde Supabase...
+            </div>
+          )}
 
           <CategoriasAny
             categorias={categoriasDisponibles}
@@ -527,7 +559,10 @@ return (
             setCategoriaActiva={setCategoriaActiva}
           />
 
-          <ProductoGridAny productos={productosFiltrados} onAgregar={abrirProducto} />
+          <ProductoGridAny
+            productos={productosFiltrados}
+            onAgregar={abrirProducto}
+          />
         </section>
 
         <TicketAny
