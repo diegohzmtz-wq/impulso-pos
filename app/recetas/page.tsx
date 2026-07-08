@@ -1,13 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ingredientesBase, recetasBase } from "../inventario/data";
-import { productos as productosCatalogoBase } from "../catalogo/data";
-import {
-  IngredienteInventario,
-  RecetaIngrediente,
-  RecetaProducto,
-} from "../inventario/types";
+import { supabase } from "@/lib/supabase";
+
+type IngredienteInventario = {
+  id: number;
+  nombre: string;
+  categoria?: string;
+  unidad: string;
+  stock: number;
+  stockMinimo?: number;
+  activo?: boolean;
+};
 
 type VarianteProducto = {
   id: number;
@@ -22,6 +26,26 @@ type ProductoCatalogo = {
   activo?: boolean;
   usaVariantes?: boolean;
   variantes?: VarianteProducto[];
+};
+
+type RecetaIngrediente = {
+  ingredienteId: number;
+  cantidad: number;
+};
+
+type RecetaVariante = {
+  nombreVariante: string;
+  ingredientes: RecetaIngrediente[];
+};
+
+type RecetaProducto = {
+  id: number;
+  productoId: number;
+  nombreProducto: string;
+  variante: string;
+  ingredientesBase: RecetaIngrediente[];
+  variantes: RecetaVariante[];
+  activo: boolean;
 };
 
 type IngredienteForm = RecetaIngrediente & {
@@ -40,68 +64,171 @@ export default function RecetasPage() {
   const [ingredientes, setIngredientes] = useState<IngredienteInventario[]>([]);
   const [productos, setProductos] = useState<ProductoCatalogo[]>([]);
   const [recetas, setRecetas] = useState<RecetaProducto[]>([]);
+  const [cargando, setCargando] = useState(true);
 
   const [productoId, setProductoId] = useState("");
   const [varianteNombre, setVarianteNombre] = useState("BASE");
   const [seleccionados, setSeleccionados] = useState<IngredienteForm[]>([]);
 
   useEffect(() => {
-    const cargar = () => {
-      const ingredientesGuardados = JSON.parse(
-        localStorage.getItem("ingredientes_inventario") || "null"
+    cargarDatos();
+  }, []);
+
+  const cargarDatos = async () => {
+    try {
+      setCargando(true);
+
+      const { data: ingredientesData, error: errorIngredientes } =
+        await supabase
+          .from("inventario")
+          .select("*")
+          .order("nombre", { ascending: true });
+
+      if (errorIngredientes) throw errorIngredientes;
+
+      const { data: productosData, error: errorProductos } = await supabase
+        .from("catalogo_productos")
+        .select(
+          `
+          *,
+          catalogo_variantes (*)
+        `
+        )
+        .eq("activo", true)
+        .order("nombre", { ascending: true });
+
+      if (errorProductos) throw errorProductos;
+
+      const { data: recetasData, error: errorRecetas } = await supabase
+        .from("recetas")
+        .select(
+          `
+          *,
+          receta_ingredientes (*)
+        `
+        )
+        .eq("activa", true)
+        .order("id", { ascending: false });
+
+      if (errorRecetas) throw errorRecetas;
+
+      const ingredientesMapeados: IngredienteInventario[] = (
+        ingredientesData || []
+      ).map((item: any) => ({
+        id: Number(item.id),
+        nombre: item.nombre,
+        categoria: item.categoria || "",
+        unidad: item.unidad || "",
+        stock: Number(item.stock || 0),
+        stockMinimo: Number(item.stock_minimo || item.stockMinimo || 0),
+        activo: item.activo ?? true,
+      }));
+
+      const productosMapeados: ProductoCatalogo[] = (productosData || []).map(
+        (producto: any) => {
+          const variantes = (producto.catalogo_variantes || []).map(
+            (variante: any) => ({
+              id: Number(variante.id),
+              nombre: variante.nombre,
+              precio: Number(variante.precio || 0),
+              activo: variante.activo ?? true,
+            })
+          );
+
+          return {
+            id: Number(producto.id),
+            nombre: producto.nombre,
+            activo: producto.activo ?? true,
+            usaVariantes: producto.usa_variantes ?? false,
+            variantes:
+              producto.usa_variantes && variantes.length > 0
+                ? variantes
+                : [],
+          };
+        }
+      );
+            const recetasMapeadas: RecetaProducto[] = (recetasData || []).map(
+        (receta: any) => {
+          const ingredientesReceta = (
+            receta.receta_ingredientes || []
+          ).map((item: any) => ({
+            ingredienteId: Number(item.ingrediente_id),
+            cantidad: Number(item.cantidad || 0),
+          }));
+
+          return {
+            id: Number(receta.id),
+            productoId: Number(receta.producto_id),
+            nombreProducto: receta.nombre_producto,
+            variante: receta.variante || "BASE",
+            ingredientesBase:
+              receta.variante === "BASE" ? ingredientesReceta : [],
+            variantes:
+              receta.variante !== "BASE"
+                ? [
+                    {
+                      nombreVariante: receta.variante,
+                      ingredientes: ingredientesReceta,
+                    },
+                  ]
+                : [],
+            activo: receta.activa ?? true,
+          };
+        }
       );
 
-      const productosGuardados = JSON.parse(
-        localStorage.getItem("catalogo_productos") ||
-          localStorage.getItem("productos") ||
-          "null"
-      );
+      const recetasAgrupadas: RecetaProducto[] = [];
 
-      const recetasGuardadas = JSON.parse(
-        localStorage.getItem("recetas_productos") || "null"
-      );
-
-      if (Array.isArray(ingredientesGuardados)) {
-        setIngredientes(ingredientesGuardados);
-      } else {
-        setIngredientes(ingredientesBase);
-        localStorage.setItem(
-          "ingredientes_inventario",
-          JSON.stringify(ingredientesBase)
+      recetasMapeadas.forEach((receta) => {
+        const existente = recetasAgrupadas.find(
+          (item) => item.productoId === receta.productoId
         );
-      }
 
-      const productosFinales = Array.isArray(productosGuardados)
-        ? productosGuardados
-        : productosCatalogoBase;
+        if (!existente) {
+          recetasAgrupadas.push({
+            id: receta.id,
+            productoId: receta.productoId,
+            nombreProducto: receta.nombreProducto,
+            variante: receta.variante,
+            ingredientesBase: receta.ingredientesBase,
+            variantes: receta.variantes,
+            activo: receta.activo,
+          });
+
+          return;
+        }
+
+        if (receta.variante === "BASE") {
+          existente.ingredientesBase = receta.ingredientesBase;
+        } else {
+          existente.variantes.push(...receta.variantes);
+        }
+      });
+
+      setIngredientes(
+        ingredientesMapeados.filter((ingrediente) => ingrediente.activo !== false)
+      );
 
       setProductos(
-        productosFinales
-          .filter((p: ProductoCatalogo) => p.activo !== false)
-          .map((p: ProductoCatalogo) => ({
-            ...p,
+        productosMapeados
+          .filter((producto) => producto.activo !== false)
+          .map((producto) => ({
+            ...producto,
             variantes:
-              p.usaVariantes === false
-                ? []
-                : p.variantes && p.variantes.length > 0
-                ? p.variantes
+              producto.usaVariantes && producto.variantes?.length
+                ? producto.variantes
                 : variantesDefault,
           }))
       );
 
-      if (Array.isArray(recetasGuardadas)) {
-        setRecetas(recetasGuardadas);
-      } else {
-        setRecetas(recetasBase);
-        localStorage.setItem("recetas_productos", JSON.stringify(recetasBase));
-      }
-    };
-
-    cargar();
-
-    window.addEventListener("focus", cargar);
-    return () => window.removeEventListener("focus", cargar);
-  }, []);
+      setRecetas(recetasAgrupadas);
+    } catch (error) {
+      console.error("Error cargando recetas:", error);
+      alert("No se pudieron cargar las recetas desde Supabase.");
+    } finally {
+      setCargando(false);
+    }
+  };
 
   const productoSeleccionado = useMemo(() => {
     return productos.find((p) => String(p.id) === productoId);
@@ -124,23 +251,20 @@ export default function RecetasPage() {
     return variantesDefault;
   }, [productoSeleccionado]);
 
-  const guardarRecetas = (lista: RecetaProducto[]) => {
-    setRecetas(lista);
-    localStorage.setItem("recetas_productos", JSON.stringify(lista));
-  };
-
   const obtenerIngrediente = (id: number) => {
-    return ingredientes.find((ing) => ing.id === id);
+    return ingredientes.find((ing) => Number(ing.id) === Number(id));
   };
 
   const toggleIngrediente = (ingrediente: IngredienteInventario) => {
     setSeleccionados((actual) => {
       const existe = actual.some(
-        (item) => item.ingredienteId === ingrediente.id
+        (item) => Number(item.ingredienteId) === Number(ingrediente.id)
       );
 
       if (existe) {
-        return actual.filter((item) => item.ingredienteId !== ingrediente.id);
+        return actual.filter(
+          (item) => Number(item.ingredienteId) !== Number(ingrediente.id)
+        );
       }
 
       return [
@@ -158,7 +282,7 @@ export default function RecetasPage() {
   const cambiarCantidad = (ingredienteId: number, cantidad: string) => {
     setSeleccionados((actual) =>
       actual.map((item) =>
-        item.ingredienteId === ingredienteId
+        Number(item.ingredienteId) === Number(ingredienteId)
           ? { ...item, cantidad: Number(cantidad || 0) }
           : item
       )
@@ -194,8 +318,7 @@ export default function RecetasPage() {
   useEffect(() => {
     cargarRecetaParaEditar(varianteNombre);
   }, [productoId, varianteNombre, recetas, ingredientes]);
-
-  const guardarReceta = () => {
+    const guardarReceta = async () => {
     if (!productoSeleccionado) {
       alert("Selecciona un producto");
       return;
@@ -204,7 +327,7 @@ export default function RecetasPage() {
     const ingredientesLimpios: RecetaIngrediente[] = seleccionados
       .filter((item) => Number(item.cantidad) > 0)
       .map((item) => ({
-        ingredienteId: item.ingredienteId,
+        ingredienteId: Number(item.ingredienteId),
         cantidad: Number(item.cantidad),
       }));
 
@@ -213,67 +336,71 @@ export default function RecetasPage() {
       return;
     }
 
-    const recetaExistente = recetas.find(
-      (receta) => receta.productoId === productoSeleccionado.id
-    );
+    try {
+      const { data: recetaExistente, error: errorBuscar } = await supabase
+        .from("recetas")
+        .select("id")
+        .eq("producto_id", Number(productoSeleccionado.id))
+        .eq("variante", varianteNombre)
+        .maybeSingle();
 
-    let nuevasRecetas: RecetaProducto[];
+      if (errorBuscar) throw errorBuscar;
 
-    if (!recetaExistente) {
-      const nuevaReceta: RecetaProducto = {
-        id: Date.now(),
-        productoId: productoSeleccionado.id,
-        nombreProducto: productoSeleccionado.nombre,
-        ingredientesBase: varianteNombre === "BASE" ? ingredientesLimpios : [],
-        variantes:
-          varianteNombre !== "BASE"
-            ? [
-                {
-                  nombreVariante: varianteNombre,
-                  ingredientes: ingredientesLimpios,
-                },
-              ]
-            : [],
-        activo: true,
-      };
+      let recetaId = recetaExistente?.id;
 
-      nuevasRecetas = [nuevaReceta, ...recetas];
-    } else {
-      nuevasRecetas = recetas.map((receta) => {
-        if (receta.id !== recetaExistente.id) return receta;
+      if (!recetaId) {
+        const { data: nuevaReceta, error: errorCrear } = await supabase
+          .from("recetas")
+          .insert({
+            producto_id: Number(productoSeleccionado.id),
+            nombre_producto: productoSeleccionado.nombre,
+            variante: varianteNombre,
+            activa: true,
+          })
+          .select("id")
+          .single();
 
-        if (varianteNombre === "BASE") {
-          return {
-            ...receta,
-            ingredientesBase: ingredientesLimpios,
-          };
-        }
+        if (errorCrear) throw errorCrear;
 
-        const existeVariante = receta.variantes.some(
-          (v) => v.nombreVariante === varianteNombre
-        );
+        recetaId = nuevaReceta.id;
+      } else {
+        const { error: errorActualizar } = await supabase
+          .from("recetas")
+          .update({
+            nombre_producto: productoSeleccionado.nombre,
+            activa: true,
+          })
+          .eq("id", recetaId);
 
-        return {
-          ...receta,
-          variantes: existeVariante
-            ? receta.variantes.map((v) =>
-                v.nombreVariante === varianteNombre
-                  ? { ...v, ingredientes: ingredientesLimpios }
-                  : v
-              )
-            : [
-                ...receta.variantes,
-                {
-                  nombreVariante: varianteNombre,
-                  ingredientes: ingredientesLimpios,
-                },
-              ],
-        };
-      });
+        if (errorActualizar) throw errorActualizar;
+      }
+
+      const { error: errorBorrarIngredientes } = await supabase
+        .from("receta_ingredientes")
+        .delete()
+        .eq("receta_id", recetaId);
+
+      if (errorBorrarIngredientes) throw errorBorrarIngredientes;
+
+      const ingredientesPayload = ingredientesLimpios.map((item) => ({
+        receta_id: recetaId,
+        ingrediente_id: item.ingredienteId,
+        cantidad: item.cantidad,
+      }));
+
+      const { error: errorIngredientes } = await supabase
+        .from("receta_ingredientes")
+        .insert(ingredientesPayload);
+
+      if (errorIngredientes) throw errorIngredientes;
+
+      await cargarDatos();
+
+      alert("Receta guardada correctamente");
+    } catch (error) {
+      console.error("Error guardando receta:", error);
+      alert("No se pudo guardar la receta.");
     }
-
-    guardarRecetas(nuevasRecetas);
-    alert("Receta guardada correctamente");
   };
 
   return (
@@ -287,6 +414,12 @@ export default function RecetasPage() {
           Crea recetas por producto y variante para descontar inventario.
         </p>
       </header>
+
+      {cargando && (
+        <div className="mx-8 mt-6 rounded-3xl border border-gray-200 bg-white p-5 text-sm font-bold text-gray-500 shadow-sm">
+          Cargando recetas desde Supabase...
+        </div>
+      )}
 
       <section className="grid grid-cols-1 gap-6 p-8 xl:grid-cols-[480px_1fr]">
         <div className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
@@ -326,70 +459,81 @@ export default function RecetasPage() {
               <h3 className="mb-3 font-black">Ingredientes</h3>
 
               <div className="max-h-[360px] space-y-3 overflow-y-auto pr-1">
-                {ingredientes.map((ingrediente) => {
-                  const activo = seleccionados.some(
-                    (item) => item.ingredienteId === ingrediente.id
-                  );
+                {ingredientes.length === 0 ? (
+                  <p className="rounded-2xl bg-white p-4 text-sm font-semibold text-gray-500">
+                    No hay ingredientes en inventario.
+                  </p>
+                ) : (
+                  ingredientes.map((ingrediente) => {
+                    const activo = seleccionados.some(
+                      (item) =>
+                        Number(item.ingredienteId) === Number(ingrediente.id)
+                    );
 
-                  const seleccionado = seleccionados.find(
-                    (item) => item.ingredienteId === ingrediente.id
-                  );
+                    const seleccionado = seleccionados.find(
+                      (item) =>
+                        Number(item.ingredienteId) === Number(ingrediente.id)
+                    );
 
-                  return (
-                    <div
-                      key={ingrediente.id}
-                      className={`rounded-2xl border p-4 ${
-                        activo
-                          ? "border-green-500 bg-green-50"
-                          : "border-gray-200 bg-white"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <button
-                          type="button"
-                          onClick={() => toggleIngrediente(ingrediente)}
-                          className="flex flex-1 items-center gap-3 text-left"
-                        >
-                          <span
-                            className={`flex h-6 w-6 items-center justify-center rounded-md border text-xs ${
-                              activo
-                                ? "border-green-600 bg-green-600 text-white"
-                                : "border-gray-300 bg-white"
-                            }`}
+                    return (
+                      <div
+                        key={ingrediente.id}
+                        className={`rounded-2xl border p-4 ${
+                          activo
+                            ? "border-green-500 bg-green-50"
+                            : "border-gray-200 bg-white"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <button
+                            type="button"
+                            onClick={() => toggleIngrediente(ingrediente)}
+                            className="flex flex-1 items-center gap-3 text-left"
                           >
-                            {activo ? "✓" : ""}
-                          </span>
-
-                          <span>
-                            <span className="block font-black">
-                              {ingrediente.nombre}
+                            <span
+                              className={`flex h-6 w-6 items-center justify-center rounded-md border text-xs ${
+                                activo
+                                  ? "border-green-600 bg-green-600 text-white"
+                                  : "border-gray-300 bg-white"
+                              }`}
+                            >
+                              {activo ? "✓" : ""}
                             </span>
-                            <span className="text-sm font-semibold text-gray-500">
-                              Stock: {ingrediente.stock} {ingrediente.unidad}
-                            </span>
-                          </span>
-                        </button>
 
-                        {activo && (
-                          <div className="w-28">
-                            <input
-                              type="number"
-                              min="0"
-                              value={seleccionado?.cantidad || ""}
-                              onChange={(e) =>
-                                cambiarCantidad(ingrediente.id, e.target.value)
-                              }
-                              className="w-full rounded-xl border border-gray-300 px-3 py-2 text-right font-black outline-none focus:border-green-500"
-                            />
-                            <p className="mt-1 text-center text-xs font-bold text-gray-500">
-                              {ingrediente.unidad}
-                            </p>
-                          </div>
-                        )}
+                            <span>
+                              <span className="block font-black">
+                                {ingrediente.nombre}
+                              </span>
+                              <span className="text-sm font-semibold text-gray-500">
+                                Stock: {ingrediente.stock} {ingrediente.unidad}
+                              </span>
+                            </span>
+                          </button>
+
+                          {activo && (
+                            <div className="w-28">
+                              <input
+                                type="number"
+                                min="0"
+                                value={seleccionado?.cantidad || ""}
+                                onChange={(e) =>
+                                  cambiarCantidad(
+                                    ingrediente.id,
+                                    e.target.value
+                                  )
+                                }
+                                className="w-full rounded-xl border border-gray-300 px-3 py-2 text-right font-black outline-none focus:border-green-500"
+                              />
+                              <p className="mt-1 text-center text-xs font-bold text-gray-500">
+                                {ingrediente.unidad}
+                              </p>
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })
+                )}
               </div>
             </div>
 
@@ -428,7 +572,9 @@ export default function RecetasPage() {
                 ) : (
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                     {recetaActual.ingredientesBase.map((item) => {
-                      const ingrediente = obtenerIngrediente(item.ingredienteId);
+                      const ingrediente = obtenerIngrediente(
+                        item.ingredienteId
+                      );
 
                       return (
                         <div
