@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { supabase } from "@/lib/supabase";
+
 import HeaderCocina from "./HeaderCocina";
 import OrdenCard from "./OrdenCard";
 import { EstadoOrden, OrdenCocina } from "./types";
@@ -17,100 +19,90 @@ const normalizarEstado = (estado?: string): EstadoOrden => {
 
 export default function CocinaPage() {
   const [ordenes, setOrdenes] = useState<OrdenCocina[]>([]);
+  const [cargando, setCargando] = useState(true);
 
   useEffect(() => {
     cargarOrdenes();
 
-    const intervalo = setInterval(cargarOrdenes, 1500);
+    const canal = supabase
+      .channel("cocina-ventas")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "ventas" },
+        () => {
+          cargarOrdenes();
+        }
+      )
+      .subscribe();
 
-    return () => clearInterval(intervalo);
+    return () => {
+      supabase.removeChannel(canal);
+    };
   }, []);
 
   const convertirOrden = (orden: any): OrdenCocina => ({
     id: Number(orden.id),
-    fecha: orden.fecha || "",
+    fecha: orden.fecha || orden.created_at || "",
     productos: Array.isArray(orden.productos) ? orden.productos : [],
     total: Number(orden.total || 0),
-    metodoPago: orden.metodoPago || "Efectivo",
+    metodoPago: orden.metodo_pago || orden.metodoPago || "Efectivo",
     telefono: orden.telefono || "",
-    estado: normalizarEstado(orden.estado || orden.estadoCocina),
+    estado: normalizarEstado(orden.estado_cocina || orden.estadoCocina),
   });
 
-  const cargarOrdenes = () => {
+  const cargarOrdenes = async () => {
     try {
-      const pedidosCocina = JSON.parse(
-        localStorage.getItem("pedidos_cocina") || "[]"
-      );
+      setCargando(true);
 
-      const ventas = JSON.parse(localStorage.getItem("ventas") || "[]");
+      const { data, error } = await supabase
+        .from("ventas")
+        .select("*")
+        .neq("estado_cocina", "Entregado")
+        .order("id", { ascending: false });
 
-      const origen =
-        Array.isArray(pedidosCocina) && pedidosCocina.length > 0
-          ? pedidosCocina
-          : ventas;
+      if (error) throw error;
 
-      const lista: OrdenCocina[] = origen
+      const lista = (data || [])
         .filter((orden: any) => Array.isArray(orden.productos))
         .map(convertirOrden)
-        .filter((orden: OrdenCocina) => orden.estado !== "Entregado");
+        .filter((orden) => orden.estado !== "Entregado");
 
       setOrdenes(lista);
-      localStorage.setItem("pedidos_cocina", JSON.stringify(lista));
-    } catch {
+    } catch (error) {
+      console.error("Error cargando cocina:", error);
       setOrdenes([]);
+    } finally {
+      setCargando(false);
     }
   };
 
-  const actualizarListas = (id: number, estado: EstadoOrden) => {
-    const actualizar = (lista: any[]) =>
-      Array.isArray(lista)
-        ? lista.map((item: any) =>
-            Number(item.id) === Number(id)
-              ? {
-                  ...item,
-                  estado,
-                  estadoCocina: estado,
-                  estadoTicket:
-                    estado === "Entregado"
-                      ? "entregado"
-                      : estado === "Listo"
-                      ? "listo"
-                      : estado === "Preparando"
-                      ? "preparando"
-                      : "pendiente",
-                }
-              : item
-          )
-        : [];
+  const cambiarEstado = async (id: number, estado: EstadoOrden) => {
+    try {
+      const { error } = await supabase
+        .from("ventas")
+        .update({
+          estado_cocina: estado,
+        })
+        .eq("id", id);
 
-    const ventas = JSON.parse(localStorage.getItem("ventas") || "[]");
-    const tickets = JSON.parse(localStorage.getItem("tickets") || "[]");
-    const turnoVentas = JSON.parse(localStorage.getItem("turno_ventas") || "[]");
+      if (error) throw error;
 
-    localStorage.setItem("ventas", JSON.stringify(actualizar(ventas)));
-    localStorage.setItem("tickets", JSON.stringify(actualizar(tickets)));
-    localStorage.setItem("turno_ventas", JSON.stringify(actualizar(turnoVentas)));
-  };
+      if (estado === "Entregado") {
+        setOrdenes((actual) =>
+          actual.filter((orden) => Number(orden.id) !== Number(id))
+        );
+        return;
+      }
 
-  const cambiarEstado = (id: number, estado: EstadoOrden) => {
-    actualizarListas(id, estado);
-
-    if (estado === "Entregado") {
-      const nuevasOrdenes = ordenes.filter(
-        (orden) => Number(orden.id) !== Number(id)
+      setOrdenes((actual) =>
+        actual.map((orden) =>
+          Number(orden.id) === Number(id) ? { ...orden, estado } : orden
+        )
       );
-
-      setOrdenes(nuevasOrdenes);
-      localStorage.setItem("pedidos_cocina", JSON.stringify(nuevasOrdenes));
-      return;
+    } catch (error) {
+      console.error("Error actualizando estado:", error);
+      alert("No se pudo actualizar el estado de la orden.");
     }
-
-    const nuevasOrdenes = ordenes.map((orden) =>
-      Number(orden.id) === Number(id) ? { ...orden, estado } : orden
-    );
-
-    setOrdenes(nuevasOrdenes);
-    localStorage.setItem("pedidos_cocina", JSON.stringify(nuevasOrdenes));
   };
 
   const pendientes = ordenes.filter((orden) => orden.estado === "Pendiente");
@@ -124,6 +116,12 @@ export default function CocinaPage() {
         preparando={preparando.length}
         listos={listos.length}
       />
+
+      {cargando && (
+        <div className="mx-8 mt-6 rounded-2xl bg-white p-4 text-sm font-bold text-gray-500 shadow-sm">
+          Cargando pedidos desde Supabase...
+        </div>
+      )}
 
       <section className="grid gap-6 p-8 lg:grid-cols-3">
         <div>

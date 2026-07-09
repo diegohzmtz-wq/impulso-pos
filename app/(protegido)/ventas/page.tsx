@@ -112,7 +112,7 @@ const quitarDescuento = (
   );
 };
 
-const descontarInventarioPorReceta = (carrito: ItemTicket[]) => {
+const descontarInventarioLocalPorReceta = (carrito: ItemTicket[]) => {
   const ingredientes = leerJson<any[]>("ingredientes_inventario", []);
   const recetas = leerJson<RecetaProducto[]>("recetas_productos", []);
 
@@ -129,7 +129,8 @@ const descontarInventarioPorReceta = (carrito: ItemTicket[]) => {
     );
 
     if (receta && receta.activo !== false) {
-      const nombreVariante = itemAny.varianteSeleccionada?.nombre || "BASE";
+      const nombreVariante =
+        itemAny.varianteSeleccionada?.nombre || "BASE";
 
       const recetaVariante = receta.variantes?.find(
         (v) =>
@@ -229,7 +230,8 @@ export default function VentasPage() {
   useEffect(() => {
     if (!cargandoSesion) cargarCatalogo();
   }, [cargandoSesion]);
-    const cargarCatalogo = async () => {
+
+  const cargarCatalogo = async () => {
     try {
       setCargandoCatalogo(true);
 
@@ -322,7 +324,9 @@ export default function VentasPage() {
         modificadores.filter((mod) => mod.activo !== false)
       );
 
-      setProductosVenta(productos.filter((producto) => producto.activo !== false));
+      setProductosVenta(
+        productos.filter((producto) => producto.activo !== false)
+      );
     } catch (error) {
       console.error("Error cargando catálogo desde Supabase:", error);
       alert("No se pudo cargar el catálogo desde Supabase.");
@@ -332,8 +336,7 @@ export default function VentasPage() {
       setCargandoCatalogo(false);
     }
   };
-
-  const categoriasDisponibles = useMemo(() => {
+    const categoriasDisponibles = useMemo(() => {
     const categorias = productosVenta
       .map((producto) => (producto as any).categoria)
       .filter(Boolean);
@@ -394,7 +397,9 @@ export default function VentasPage() {
           index === existe
             ? {
                 ...producto,
-                cantidad: Number((producto as any).cantidad || 1) + Number(itemAny.cantidad || 1),
+                cantidad:
+                  Number((producto as any).cantidad || 1) +
+                  Number(itemAny.cantidad || 1),
               }
             : producto
         );
@@ -420,13 +425,17 @@ export default function VentasPage() {
 
     setCarrito((actual) =>
       actual.map((item, itemIndex) =>
-        itemIndex === index ? ({ ...(item as any), cantidad } as ItemTicket) : item
+        itemIndex === index
+          ? ({ ...(item as any), cantidad } as ItemTicket)
+          : item
       )
     );
   };
 
   const eliminarProducto = (index: number) => {
-    setCarrito((actual) => actual.filter((_, itemIndex) => itemIndex !== index));
+    setCarrito((actual) =>
+      actual.filter((_, itemIndex) => itemIndex !== index)
+    );
   };
 
   const limpiarVenta = () => {
@@ -435,7 +444,8 @@ export default function VentasPage() {
     setMetodoPago("Efectivo");
     setPagoCon("");
   };
-    const subtotal = useMemo(() => {
+
+  const subtotal = useMemo(() => {
     return carrito.reduce((totalActual, item) => {
       const itemAny = item as any;
 
@@ -483,59 +493,54 @@ export default function VentasPage() {
       return;
     }
 
-    const venta = {
-      id: Date.now(),
-      turnoId: turnoActivo.id,
-      fecha: new Date().toISOString(),
-      productos: carrito,
-      subtotal,
-      total,
-      metodoPago,
-      pagoCon: metodoPago === "Efectivo" ? Number(pagoCon || 0) : total,
-      cambio,
-      telefono,
-      estado: "Pagada",
-      estadoCocina: "Pendiente",
-      cajero: turnoActivo.cajero || "Cajero",
-    };
+    const fechaActual = new Date().toISOString();
+    const folio = `V-${Date.now()}`;
+
+    const productosParaGuardar = carrito.map((item) => {
+      const itemAny = item as any;
+
+      return {
+        id: Number(itemAny.id),
+        nombre: itemAny.nombre,
+        precio: Number(
+          itemAny.varianteSeleccionada?.precio || itemAny.precio || 0
+        ),
+        cantidad: Number(itemAny.cantidad || 1),
+        varianteSeleccionada: itemAny.varianteSeleccionada || null,
+        modificadoresSeleccionados:
+          itemAny.modificadoresSeleccionados || [],
+        bebidaSeleccionada: itemAny.bebidaSeleccionada || "",
+        notaCocina: itemAny.notaCocina || "",
+      };
+    });
 
     try {
-      const ventasGuardadas = leerJson<any[]>("ventas", []);
-      const pedidosCocina = leerJson<any[]>("pedidos_cocina", []);
-
-      localStorage.setItem("ventas", JSON.stringify([venta, ...ventasGuardadas]));
-      localStorage.setItem(
-        "pedidos_cocina",
-        JSON.stringify([venta, ...pedidosCocina])
-      );
-
-      descontarInventarioPorReceta(carrito);
-
       const { error } = await supabase.from("ventas").insert({
-        total: venta.total,
-        metodo_pago: venta.metodoPago,
-        productos: venta.productos,
-        telefono: venta.telefono,
-        fecha: venta.fecha,
-        estado: venta.estado,
+        folio,
+        total,
+        metodo_pago: metodoPago,
+        productos: productosParaGuardar,
+        telefono,
+        fecha: fechaActual,
+        estado: "Pagada",
+        estado_cocina: "Pendiente",
       });
 
-      if (error) {
-        console.error("Error Supabase ventas:", error);
-        alert("La venta se guardó localmente, pero no se pudo guardar en Supabase.");
-      }
+      if (error) throw error;
+
+      descontarInventarioLocalPorReceta(carrito);
 
       limpiarVenta();
       alert("Venta cobrada correctamente.");
     } catch (error) {
       console.error("Error al guardar venta:", error);
-      alert("Hubo un error al guardar la venta.");
+      alert("Hubo un error al guardar la venta en Supabase.");
     }
   };
 
   if (cargandoSesion) {
     return (
-      <main className="min-h-screen bg-gray-100 text-slate-900 flex items-center justify-center">
+      <main className="flex min-h-screen items-center justify-center bg-gray-100 text-slate-900">
         <p className="text-slate-500">Cargando ventas...</p>
       </main>
     );

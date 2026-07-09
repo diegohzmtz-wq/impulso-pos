@@ -8,194 +8,166 @@ type Props = {
   onCambiarEstado: (id: number, estado: EstadoOrden) => void;
 };
 
-export default function OrdenCard({
-  orden,
-  onCambiarEstado,
-}: Props) {
-  const [ahora, setAhora] = useState(Date.now());
+export default function OrdenCard({ orden, onCambiarEstado }: Props) {
+  const [ahora, setAhora] = useState(new Date());
 
   useEffect(() => {
     const intervalo = setInterval(() => {
-      setAhora(Date.now());
+      setAhora(new Date());
     }, 1000);
 
     return () => clearInterval(intervalo);
   }, []);
 
-  const fechaOrden = useMemo(() => {
-    const texto = String(orden.fecha || "").trim();
+  const minutos = useMemo(() => {
+    const fechaOrden = new Date(orden.fecha);
+    const diferencia = ahora.getTime() - fechaOrden.getTime();
+    return Math.max(0, Math.floor(diferencia / 60000));
+  }, [ahora, orden.fecha]);
 
-    const match = texto.match(
-      /^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?$/
-    );
+  const segundos = useMemo(() => {
+    const fechaOrden = new Date(orden.fecha);
+    const diferencia = ahora.getTime() - fechaOrden.getTime();
+    return Math.max(0, Math.floor((diferencia / 1000) % 60));
+  }, [ahora, orden.fecha]);
 
-    if (match) {
-      const dia = Number(match[1]);
-      const mes = Number(match[2]) - 1;
-      const anio = Number(match[3]);
-      const hora = Number(match[4]);
-      const minuto = Number(match[5]);
-      const segundo = Number(match[6] || 0);
+  const colorTiempo =
+    minutos >= 10
+      ? "bg-red-100 text-red-700 border-red-300"
+      : minutos >= 7
+      ? "bg-orange-100 text-orange-700 border-orange-300"
+      : minutos >= 5
+      ? "bg-green-100 text-green-700 border-green-300"
+      : "bg-blue-100 text-blue-700 border-blue-300";
 
-      return new Date(
-        anio,
-        mes,
-        dia,
-        hora,
-        minuto,
-        segundo
-      ).getTime();
-    }
+  const colorEstado =
+    orden.estado === "Pendiente"
+      ? "bg-yellow-100 text-yellow-700"
+      : orden.estado === "Preparando"
+      ? "bg-blue-100 text-blue-700"
+      : orden.estado === "Listo"
+      ? "bg-green-100 text-green-700"
+      : "bg-gray-100 text-gray-700";
 
-    const fechaNormal = new Date(texto).getTime();
-
-    return Number.isNaN(fechaNormal)
-      ? Date.now()
-      : fechaNormal;
-  }, [orden.fecha]);
-
-  const segundos = Math.max(
-    0,
-    Math.floor((ahora - fechaOrden) / 1000)
-  );
-
-  const minutos = Math.floor(segundos / 60);
-  const segundosRestantes = segundos % 60;
-
-  const tiempo = `${String(minutos).padStart(
-    2,
-    "0"
-  )}:${String(segundosRestantes).padStart(2, "0")}`;
-
-  let colorBorde = "ring-blue-400";
-  let colorBarra = "bg-blue-500";
-  let colorTiempo = "bg-blue-100 text-blue-700";
-  let mensaje = "Pedido nuevo";
-
-  if (minutos >= 5) {
-    colorBorde = "ring-green-400";
-    colorBarra = "bg-green-500";
-    colorTiempo = "bg-green-100 text-green-700";
-    mensaje = "En tiempo";
-  }
-
-  if (minutos >= 7) {
-    colorBorde = "ring-orange-400";
-    colorBarra = "bg-orange-500";
-    colorTiempo = "bg-orange-100 text-orange-700";
-    mensaje = "Está tardando";
-  }
-
-  if (minutos >= 10) {
-    colorBorde = "ring-red-500 animate-pulse";
-    colorBarra = "bg-red-600";
-    colorTiempo = "bg-red-100 text-red-700";
-    mensaje = "URGENTE";
-  }
+  const siguienteEstado = () => {
+    if (orden.estado === "Pendiente") return "Preparando";
+    if (orden.estado === "Preparando") return "Listo";
+    if (orden.estado === "Listo") return "Entregado";
+    return "Entregado";
+  };
 
   return (
-    <div
-      className={`overflow-hidden rounded-3xl bg-white shadow-lg ring-2 ${colorBorde}`}
-    >
-      <div className={`h-2 ${colorBarra}`} />
-
-      <div className="p-6">
-        <div className="mb-6 flex items-start justify-between">
-          <div>
-            <h2 className="text-2xl font-black">
-              Orden #{orden.id}
-            </h2>
-
-            <p className="mt-1 text-sm text-gray-500">
-              {orden.fecha}
-            </p>
-          </div>
-
-          <div className="flex flex-col items-end gap-3">
-            <span className="rounded-full bg-gray-100 px-4 py-2 text-sm font-black">
-              {orden.estado}
-            </span>
-
-            <div
-              className={`rounded-2xl px-5 py-4 text-center ${colorTiempo}`}
-            >
-              <p className="text-4xl font-black tracking-wider">
-                {tiempo}
-              </p>
-
-              <p className="mt-1 text-xs font-black uppercase">
-                {mensaje}
-              </p>
-            </div>
-          </div>
+    <div className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm">
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-lg font-black text-gray-900">
+            Orden #{orden.id}
+          </h3>
+          <p className="text-sm text-gray-500">
+            {new Date(orden.fecha).toLocaleTimeString("es-MX", {
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+          </p>
         </div>
 
-        <div className="space-y-3"></div>
-                  {orden.productos.map((producto, index) => (
-            <div
-              key={index}
-              className="rounded-2xl border border-gray-200 bg-white p-4"
-            >
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-lg font-black text-gray-950">
-                    {producto.cantidad}x {producto.nombre}
-                  </p>
-
-                  {producto.varianteSeleccionada?.nombre && (
-                    <p className="mt-1 text-base font-bold text-gray-700">
-                      {producto.varianteSeleccionada.nombre}
-                    </p>
-                  )}
-
-                  {producto.bebidaSeleccionada && (
-                    <p className="mt-1 text-sm font-semibold text-gray-600">
-                      Bebida: {producto.bebidaSeleccionada}
-                    </p>
-                  )}
-
-                  {producto.notaCocina && (
-                    <p className="mt-2 rounded-xl bg-yellow-50 px-3 py-2 text-sm font-bold text-yellow-800">
-                      Nota: {producto.notaCocina}
-                    </p>
-                  )}
-                </div>
-
-                <p className="font-black text-gray-950">
-                  ${Number(producto.precio || 0).toFixed(2)}
-                </p>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <div className="mt-6 flex flex-wrap gap-3">
-          {orden.estado !== "Preparando" && (
-            <button
-              onClick={() => onCambiarEstado(orden.id, "Preparando")}
-              className="rounded-2xl bg-orange-100 px-5 py-3 font-black text-orange-800 transition hover:bg-orange-200"
-            >
-              Preparando
-            </button>
-          )}
-
-          {orden.estado !== "Listo" && (
-            <button
-              onClick={() => onCambiarEstado(orden.id, "Listo")}
-              className="rounded-2xl bg-green-100 px-5 py-3 font-black text-green-800 transition hover:bg-green-200"
-            >
-              Listo
-            </button>
-          )}
-
-          <button
-            onClick={() => onCambiarEstado(orden.id, "Entregado")}
-            className="rounded-2xl bg-gray-950 px-5 py-3 font-black text-white transition hover:bg-gray-800"
+        <div className="flex flex-col items-end gap-2">
+          <span
+            className={`rounded-full px-3 py-1 text-xs font-bold ${colorEstado}`}
           >
-            Entregado
-          </button>
+            {orden.estado}
+          </span>
+
+          <span
+            className={`rounded-full border px-3 py-1 text-xs font-black ${colorTiempo}`}
+          >
+            {minutos}:{segundos.toString().padStart(2, "0")}
+          </span>
         </div>
       </div>
-    
+
+      <div className="space-y-3">
+        {orden.productos.map((producto, index) => (
+          <div
+            key={`${producto.nombre}-${index}`}
+            className="rounded-2xl bg-gray-50 p-3"
+          >
+            <div className="flex justify-between gap-3">
+              <p className="font-black text-gray-900">
+                {producto.cantidad}x {producto.nombre}
+              </p>
+              <p className="font-bold text-gray-700">
+                ${(producto.precio * producto.cantidad).toFixed(2)}
+              </p>
+            </div>
+
+            {producto.varianteSeleccionada && (
+              <p className="mt-1 text-sm font-semibold text-blue-700">
+                Variante: {producto.varianteSeleccionada.nombre}
+              </p>
+            )}
+
+            {producto.bebidaSeleccionada && (
+              <p className="mt-1 text-sm font-semibold text-purple-700">
+                Bebida: {producto.bebidaSeleccionada}
+              </p>
+            )}
+
+            {producto.modificadoresSeleccionados &&
+              producto.modificadoresSeleccionados.length > 0 && (
+                <div className="mt-2 space-y-1">
+                  {producto.modificadoresSeleccionados.map(
+                    (modificador: any, i: number) => (
+                      <p key={i} className="text-sm text-gray-600">
+                        • {modificador.nombre}
+                      </p>
+                    )
+                  )}
+                </div>
+              )}
+
+            {producto.notaCocina && (
+              <p className="mt-2 rounded-xl bg-yellow-50 p-2 text-sm font-semibold text-yellow-800">
+                Nota: {producto.notaCocina}
+              </p>
+            )}
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-5 border-t border-gray-200 pt-4">
+        <div className="mb-4 flex items-center justify-between">
+          <span className="text-sm font-bold text-gray-500">Total</span>
+          <span className="text-xl font-black text-gray-900">
+            ${orden.total.toFixed(2)}
+          </span>
+        </div>
+
+        <div className="mb-4 grid grid-cols-2 gap-2 text-sm">
+          <div className="rounded-xl bg-gray-50 p-2">
+            <p className="text-gray-500">Pago</p>
+            <p className="font-bold text-gray-900">{orden.metodoPago}</p>
+          </div>
+
+          {orden.telefono && (
+            <div className="rounded-xl bg-gray-50 p-2">
+              <p className="text-gray-500">Teléfono</p>
+              <p className="font-bold text-gray-900">{orden.telefono}</p>
+            </div>
+          )}
+        </div>
+
+        {orden.estado !== "Entregado" && (
+          <button
+            onClick={() => onCambiarEstado(orden.id, siguienteEstado())}
+            className="w-full rounded-2xl bg-gray-900 py-3 text-sm font-black text-white transition hover:bg-gray-800"
+          >
+            {orden.estado === "Pendiente" && "Empezar preparación"}
+            {orden.estado === "Preparando" && "Marcar como listo"}
+            {orden.estado === "Listo" && "Entregar orden"}
+          </button>
+        )}
+      </div>
+    </div>
   );
 }
