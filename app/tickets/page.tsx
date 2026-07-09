@@ -2,17 +2,25 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase";
 
 type ModificadorTicket = {
   nombre?: string;
   precioExtra?: number;
+  precio_extra?: number;
   tipo?: string;
 };
 
 type ProductoTicket = {
+  id?: number;
   nombre?: string;
   precio?: number;
   cantidad?: number;
+  varianteSeleccionada?: {
+    id?: number;
+    nombre?: string;
+    precio?: number;
+  } | null;
   modificadoresSeleccionados?: ModificadorTicket[];
   bebidaSeleccionada?: string;
   notaCocina?: string;
@@ -20,14 +28,17 @@ type ProductoTicket = {
 
 type Venta = {
   id: number;
+  folio?: string;
   fecha?: string;
-  fechaISO?: string;
+  created_at?: string;
   fechaDia?: string;
   total: number;
   subtotal?: number;
   metodoPago?: string;
+  metodo_pago?: string;
   telefono?: string;
   estado?: string;
+  estado_cocina?: string;
   productos?: ProductoTicket[];
 };
 
@@ -38,26 +49,19 @@ type Negocio = {
   whatsapp?: string;
 };
 
+const obtenerFechaBase = (venta: Venta) => {
+  return venta.fecha || venta.created_at || new Date().toISOString();
+};
+
 const obtenerFechaDia = (venta: Venta) => {
   if (venta.fechaDia) return venta.fechaDia;
 
-  if (venta.fechaISO) {
-    return new Date(venta.fechaISO).toISOString().slice(0, 10);
-  }
-
-  if (venta.id) {
-    return new Date(venta.id).toISOString().slice(0, 10);
-  }
-
-  return new Date().toISOString().slice(0, 10);
+  const fecha = obtenerFechaBase(venta);
+  return new Date(fecha).toISOString().slice(0, 10);
 };
 
 const formatearFecha = (venta: Venta) => {
-  const fechaBase = venta.fechaISO
-    ? new Date(venta.fechaISO)
-    : venta.id
-    ? new Date(venta.id)
-    : new Date();
+  const fechaBase = new Date(obtenerFechaBase(venta));
 
   return fechaBase.toLocaleString("es-MX", {
     dateStyle: "medium",
@@ -74,6 +78,14 @@ const cargarNegocio = (): Negocio => {
   }
 };
 
+const obtenerMetodoPago = (venta: Venta) => {
+  return venta.metodo_pago || venta.metodoPago || "Efectivo";
+};
+
+const obtenerPrecioModificador = (mod: ModificadorTicket) => {
+  return Number(mod.precioExtra ?? mod.precio_extra ?? 0);
+};
+
 const imprimirTicket = (venta: Venta) => {
   const negocio = cargarNegocio();
   const productos = venta.productos || [];
@@ -81,24 +93,30 @@ const imprimirTicket = (venta: Venta) => {
   const filasProductos = productos
     .map((producto) => {
       const cantidad = Number(producto.cantidad || 1);
-      const precio = Number(producto.precio || 0);
-      const subtotal = cantidad * precio;
+      const precio = Number(
+        producto.varianteSeleccionada?.precio || producto.precio || 0
+      );
 
+      const subtotal = cantidad * precio;
       const modificadores = producto.modificadoresSeleccionados || [];
 
       const modsHtml = modificadores
-        .map(
-          (mod) => `
-          <div class="modificador">
-            ${mod.tipo === "Quitar" ? "−" : "+"} ${mod.nombre || "Modificador"}
-            ${
-              Number(mod.precioExtra || 0) > 0
-                ? `<span>$${Number(mod.precioExtra || 0).toFixed(2)}</span>`
-                : ""
-            }
-          </div>
-        `
-        )
+        .map((mod) => {
+          const precioExtra = obtenerPrecioModificador(mod);
+
+          return `
+            <div class="modificador">
+              ${mod.tipo === "Quitar" ? "−" : "+"} ${
+                mod.nombre || "Modificador"
+              }
+              ${
+                precioExtra > 0
+                  ? `<span>$${precioExtra.toFixed(2)}</span>`
+                  : ""
+              }
+            </div>
+          `;
+        })
         .join("");
 
       return `
@@ -111,6 +129,12 @@ const imprimirTicket = (venta: Venta) => {
           <div class="precio-unitario">
             $${precio.toFixed(2)} c/u
           </div>
+
+          ${
+            producto.varianteSeleccionada?.nombre
+              ? `<div class="modificador">Variante: ${producto.varianteSeleccionada.nombre}</div>`
+              : ""
+          }
 
           ${modsHtml}
 
@@ -135,7 +159,7 @@ const imprimirTicket = (venta: Venta) => {
     <html>
       <head>
         <meta charset="UTF-8" />
-        <title>Ticket #${venta.id}</title>
+        <title>Ticket #${venta.folio || venta.id}</title>
         <style>
           @page {
             size: 80mm auto;
@@ -274,7 +298,7 @@ const imprimirTicket = (venta: Venta) => {
 
           <div class="linea"></div>
 
-          <div class="titulo">TICKET #${venta.id}</div>
+          <div class="titulo">TICKET #${venta.folio || venta.id}</div>
           <div class="center small">${formatearFecha(venta)}</div>
 
           <div class="linea"></div>
@@ -290,7 +314,7 @@ const imprimirTicket = (venta: Venta) => {
 
           <div class="pago">
             <span>Método de pago</span>
-            <strong>${venta.metodoPago || "Efectivo"}</strong>
+            <strong>${obtenerMetodoPago(venta)}</strong>
           </div>
 
           ${
@@ -325,7 +349,6 @@ const imprimirTicket = (venta: Venta) => {
   ventana.document.write(html);
   ventana.document.close();
 };
-
 export default function TicketsPage() {
   const router = useRouter();
 
@@ -334,33 +357,76 @@ export default function TicketsPage() {
   const [ventas, setVentas] = useState<Venta[]>([]);
   const [busqueda, setBusqueda] = useState("");
   const [fechaSeleccionada, setFechaSeleccionada] = useState(hoy);
-
-  const cargarTickets = () => {
-    try {
-      const ventasGuardadas = JSON.parse(localStorage.getItem("ventas") || "[]");
-
-      const normalizadas: Venta[] = Array.isArray(ventasGuardadas)
-        ? ventasGuardadas.map((venta: Venta) => ({
-            ...venta,
-            fechaDia: obtenerFechaDia(venta),
-            fecha: venta.fecha || formatearFecha(venta),
-            estado: venta.estado || "pagado",
-            productos: venta.productos || [],
-          }))
-        : [];
-
-      setVentas(normalizadas);
-    } catch {
-      setVentas([]);
-    }
-  };
+  const [cargando, setCargando] = useState(true);
 
   useEffect(() => {
     cargarTickets();
+
+    const canal = supabase
+      .channel("tickets-ventas")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "ventas" },
+        () => {
+          cargarTickets();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(canal);
+    };
   }, []);
 
+  const convertirVenta = (venta: any): Venta => {
+    return {
+      id: Number(venta.id),
+      folio: venta.folio || "",
+      fecha: venta.fecha || venta.created_at || "",
+      created_at: venta.created_at || "",
+      fechaDia: obtenerFechaDia({
+        id: Number(venta.id),
+        fecha: venta.fecha || venta.created_at || "",
+        created_at: venta.created_at || "",
+        total: Number(venta.total || 0),
+      }),
+      total: Number(venta.total || 0),
+      subtotal: Number(venta.subtotal || venta.total || 0),
+      metodoPago: venta.metodo_pago || "Efectivo",
+      metodo_pago: venta.metodo_pago || "Efectivo",
+      telefono: venta.telefono || "",
+      estado: venta.estado || "Pagada",
+      estado_cocina: venta.estado_cocina || "Pendiente",
+      productos: Array.isArray(venta.productos) ? venta.productos : [],
+    };
+  };
+
+  const cargarTickets = async () => {
+    try {
+      setCargando(true);
+
+      const { data, error } = await supabase
+        .from("ventas")
+        .select("*")
+        .order("id", { ascending: false });
+
+      if (error) throw error;
+
+      const lista = (data || []).map(convertirVenta);
+
+      setVentas(lista);
+    } catch (error) {
+      console.error("Error cargando tickets:", error);
+      setVentas([]);
+    } finally {
+      setCargando(false);
+    }
+  };
+
   const ventasDelDia = useMemo(() => {
-    return ventas.filter((venta) => obtenerFechaDia(venta) === fechaSeleccionada);
+    return ventas.filter(
+      (venta) => obtenerFechaDia(venta) === fechaSeleccionada
+    );
   }, [ventas, fechaSeleccionada]);
 
   const ventasFiltradas = useMemo(() => {
@@ -370,15 +436,16 @@ export default function TicketsPage() {
 
     return ventasDelDia.filter((venta) => {
       const porId = String(venta.id).includes(texto);
+      const porFolio = (venta.folio || "").toLowerCase().includes(texto);
       const porTelefono = (venta.telefono || "").includes(texto);
-      const porMetodo = (venta.metodoPago || "").toLowerCase().includes(texto);
+      const porMetodo = obtenerMetodoPago(venta).toLowerCase().includes(texto);
       const porEstado = (venta.estado || "").toLowerCase().includes(texto);
 
       const porProducto = (venta.productos || []).some((producto) =>
         (producto.nombre || "Producto").toLowerCase().includes(texto)
       );
 
-      return porId || porTelefono || porMetodo || porEstado || porProducto;
+      return porId || porFolio || porTelefono || porMetodo || porEstado || porProducto;
     });
   }, [ventasDelDia, busqueda]);
 
@@ -393,14 +460,20 @@ export default function TicketsPage() {
     return ventas.reduce((suma, venta) => suma + Number(venta.total || 0), 0);
   }, [ventas]);
 
-  const eliminarTicket = (id: number) => {
+  const eliminarTicket = async (id: number) => {
     const confirmar = confirm("¿Seguro que quieres eliminar este ticket?");
     if (!confirmar) return;
 
-    const nuevasVentas = ventas.filter((venta) => venta.id !== id);
+    try {
+      const { error } = await supabase.from("ventas").delete().eq("id", id);
 
-    localStorage.setItem("ventas", JSON.stringify(nuevasVentas));
-    setVentas(nuevasVentas);
+      if (error) throw error;
+
+      setVentas((actual) => actual.filter((venta) => Number(venta.id) !== id));
+    } catch (error) {
+      console.error("Error eliminando ticket:", error);
+      alert("No se pudo eliminar el ticket.");
+    }
   };
 
   return (
@@ -436,6 +509,12 @@ export default function TicketsPage() {
       </header>
 
       <section className="space-y-8 p-8">
+        {cargando && (
+          <div className="rounded-3xl border border-gray-200 bg-white p-4 text-sm font-bold text-gray-500 shadow-sm">
+            Cargando tickets desde Supabase...
+          </div>
+        )}
+
         <div className="grid grid-cols-1 gap-5 md:grid-cols-4">
           <div className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
             <p className="font-semibold text-gray-500">Tickets del día</p>
@@ -521,7 +600,7 @@ export default function TicketsPage() {
                   <div className="mb-4 flex flex-col gap-4 border-b border-gray-200 pb-4 md:flex-row md:items-start md:justify-between">
                     <div>
                       <h3 className="text-xl font-black">
-                        Ticket #{venta.id}
+                        Ticket #{venta.folio || venta.id}
                       </h3>
 
                       <p className="font-semibold text-gray-500">
@@ -530,11 +609,11 @@ export default function TicketsPage() {
 
                       <div className="mt-3 flex flex-wrap gap-2">
                         <span className="rounded-full bg-green-100 px-3 py-1 text-sm font-bold text-green-700">
-                          {venta.estado || "pagado"}
+                          {venta.estado || "Pagada"}
                         </span>
 
                         <span className="rounded-full bg-gray-100 px-3 py-1 text-sm font-bold text-gray-700">
-                          {venta.metodoPago || "Efectivo"}
+                          {obtenerMetodoPago(venta)}
                         </span>
 
                         {venta.telefono ? (
@@ -587,6 +666,12 @@ export default function TicketsPage() {
                         const modificadores =
                           producto.modificadoresSeleccionados || [];
 
+                        const precio = Number(
+                          producto.varianteSeleccionada?.precio ||
+                            producto.precio ||
+                            0
+                        );
+
                         return (
                           <div
                             key={`${venta.id}-${index}`}
@@ -600,15 +685,21 @@ export default function TicketsPage() {
                                 </p>
 
                                 <p className="text-sm text-gray-500">
-                                  ${Number(producto.precio || 0).toFixed(2)} c/u
+                                  ${precio.toFixed(2)} c/u
                                 </p>
+
+                                {producto.varianteSeleccionada?.nombre && (
+                                  <p className="text-sm font-bold text-blue-600">
+                                    Variante:{" "}
+                                    {producto.varianteSeleccionada.nombre}
+                                  </p>
+                                )}
                               </div>
 
                               <p className="font-black">
                                 $
                                 {(
-                                  Number(producto.precio || 0) *
-                                  Number(producto.cantidad || 1)
+                                  precio * Number(producto.cantidad || 1)
                                 ).toFixed(2)}
                               </p>
                             </div>
@@ -619,6 +710,11 @@ export default function TicketsPage() {
                                   <p key={`${venta.id}-${index}-mod-${i}`}>
                                     {mod.tipo === "Quitar" ? "−" : "+"}{" "}
                                     {mod.nombre}
+                                    {obtenerPrecioModificador(mod) > 0
+                                      ? ` +$${obtenerPrecioModificador(
+                                          mod
+                                        ).toFixed(2)}`
+                                      : ""}
                                   </p>
                                 ))}
                               </div>
