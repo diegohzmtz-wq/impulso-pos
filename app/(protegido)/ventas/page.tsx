@@ -39,21 +39,18 @@ type TurnoActivo = {
   cajero?: string;
 };
 
-type RecetaIngrediente = {
-  ingredienteId: number;
+type RecetaIngredienteSupabase = {
+  ingrediente_id: number;
   cantidad: number;
 };
 
-type RecetaProducto = {
+type RecetaSupabase = {
   id: number;
-  productoId: number;
-  nombreProducto: string;
-  ingredientesBase: RecetaIngrediente[];
-  variantes: {
-    nombreVariante: string;
-    ingredientes: RecetaIngrediente[];
-  }[];
-  activo: boolean;
+  producto_id: number;
+  nombre_producto: string;
+  variante: string;
+  activa: boolean;
+  receta_ingredientes?: RecetaIngredienteSupabase[];
 };
 
 const leerJson = <T,>(clave: string, valorDefault: T): T => {
@@ -67,6 +64,39 @@ const leerJson = <T,>(clave: string, valorDefault: T): T => {
   } catch {
     return valorDefault;
   }
+};
+
+const normalizarTexto = (texto?: string) => {
+  return String(texto || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+};
+
+const normalizarVariante = (variante?: string) => {
+  const valor = normalizarTexto(variante);
+
+  if (!valor || valor === "base") return "base";
+
+  if (valor.includes("combo") && valor.includes("doble")) {
+    return "combo doble";
+  }
+
+  if (
+    valor.includes("combo") &&
+    (valor.includes("sencillo") || valor.includes("sencilla"))
+  ) {
+    return "combo sencillo";
+  }
+
+  if (valor.includes("doble")) return "doble";
+
+  if (valor.includes("sencillo") || valor.includes("sencilla")) {
+    return "sencilla";
+  }
+
+  return valor;
 };
 
 const normalizarCategoria = (nombre?: string): Categoria => {
@@ -96,7 +126,10 @@ const agregarDescuento = (
   cantidad: number
 ) => {
   if (!ingredienteId || cantidad <= 0) return;
-  descuentos[ingredienteId] = (descuentos[ingredienteId] || 0) + cantidad;
+
+  descuentos[ingredienteId] = Number(
+    ((descuentos[ingredienteId] || 0) + cantidad).toFixed(4)
+  );
 };
 
 const quitarDescuento = (
@@ -108,45 +141,69 @@ const quitarDescuento = (
 
   descuentos[ingredienteId] = Math.max(
     0,
-    (descuentos[ingredienteId] || 0) - cantidad
+    Number(((descuentos[ingredienteId] || 0) - cantidad).toFixed(4))
   );
 };
 
-const descontarInventarioLocalPorReceta = (carrito: ItemTicket[]) => {
-  const ingredientes = leerJson<any[]>("ingredientes_inventario", []);
-  const recetas = leerJson<RecetaProducto[]>("recetas_productos", []);
-
-  if (!Array.isArray(ingredientes)) return;
-
+const calcularDescuentosPorCarrito = async (carrito: ItemTicket[]) => {
   const descuentosPorIngrediente: Record<number, number> = {};
+  const productoIds = Array.from(
+    new Set(carrito.map((item) => Number((item as any).id)).filter(Boolean))
+  );
+
+  if (productoIds.length === 0) return descuentosPorIngrediente;
+
+  const { data: recetasData, error: errorRecetas } = await supabase
+    .from("recetas")
+    .select(
+      `
+      id,
+      producto_id,
+      nombre_producto,
+      variante,
+      activa,
+      receta_ingredientes (
+        ingrediente_id,
+        cantidad
+      )
+    `
+    )
+    .in("producto_id", productoIds)
+    .eq("activa", true);
+
+  if (errorRecetas) throw errorRecetas;
+
+  const recetas = (recetasData || []) as RecetaSupabase[];
 
   carrito.forEach((item) => {
     const itemAny = item as any;
+    const productoId = Number(itemAny.id);
     const cantidadVendida = Number(itemAny.cantidad || 1);
 
-    const receta = recetas.find(
-      (r) => Number(r.productoId) === Number(itemAny.id)
+    const varianteSeleccionada = normalizarVariante(
+      itemAny.varianteSeleccionada?.nombre || "BASE"
     );
 
-    if (receta && receta.activo !== false) {
-      const nombreVariante =
-        itemAny.varianteSeleccionada?.nombre || "BASE";
+    const recetaExacta = recetas.find(
+      (receta) =>
+        Number(receta.producto_id) === productoId &&
+        normalizarVariante(receta.variante) === varianteSeleccionada
+    );
 
-      const recetaVariante = receta.variantes?.find(
-        (v) =>
-          String(v.nombreVariante).toLowerCase() ===
-          String(nombreVariante).toLowerCase()
-      );
+    const recetaBase = recetas.find(
+      (receta) =>
+        Number(receta.producto_id) === productoId &&
+        normalizarVariante(receta.variante) === "base"
+    );
 
-      const ingredientesReceta = recetaVariante?.ingredientes?.length
-        ? recetaVariante.ingredientes
-        : receta.ingredientesBase || [];
+    const receta = recetaExacta || recetaBase;
 
-      ingredientesReceta.forEach((ing) => {
+    if (receta?.receta_ingredientes?.length) {
+      receta.receta_ingredientes.forEach((ingrediente) => {
         agregarDescuento(
           descuentosPorIngrediente,
-          Number(ing.ingredienteId),
-          Number(ing.cantidad || 0) * cantidadVendida
+          Number(ingrediente.ingrediente_id),
+          Number(ingrediente.cantidad || 0) * cantidadVendida
         );
       });
     }
@@ -154,17 +211,25 @@ const descontarInventarioLocalPorReceta = (carrito: ItemTicket[]) => {
     const modificadores = (itemAny.modificadoresSeleccionados || []) as any[];
 
     modificadores.forEach((modificador) => {
-      const ingredienteId = Number(modificador.ingredienteId || 0);
-      const cantidadInventario =
-        Number(modificador.cantidadInventario || 0) * cantidadVendida;
+      const ingredienteId = Number(
+        modificador.ingrediente_id || modificador.ingredienteId || 0
+      );
 
-      if (!ingredienteId || cantidadInventario <= 0) return;
+      const cantidadInventario = Number(
+        modificador.cantidad_inventario ||
+          modificador.cantidadInventario ||
+          0
+      );
+
+      const cantidadTotal = cantidadInventario * cantidadVendida;
+
+      if (!ingredienteId || cantidadTotal <= 0) return;
 
       if (modificador.tipo === "Agregar") {
         agregarDescuento(
           descuentosPorIngrediente,
           ingredienteId,
-          cantidadInventario
+          cantidadTotal
         );
       }
 
@@ -172,25 +237,45 @@ const descontarInventarioLocalPorReceta = (carrito: ItemTicket[]) => {
         quitarDescuento(
           descuentosPorIngrediente,
           ingredienteId,
-          cantidadInventario
+          cantidadTotal
         );
       }
     });
   });
 
-  const nuevoInventario = ingredientes.map((ingrediente) => {
-    const descuento = descuentosPorIngrediente[Number(ingrediente.id)] || 0;
+  return descuentosPorIngrediente;
+};
 
-    return {
-      ...ingrediente,
-      stock: Math.max(0, Number(ingrediente.stock || 0) - descuento),
-    };
+const descontarInventarioSupabasePorReceta = async (carrito: ItemTicket[]) => {
+  const descuentos = await calcularDescuentosPorCarrito(carrito);
+  const ingredienteIds = Object.keys(descuentos).map(Number).filter(Boolean);
+
+  if (ingredienteIds.length === 0) return;
+
+  const { data: inventarioData, error: errorInventario } = await supabase
+    .from("inventario")
+    .select("id, stock")
+    .in("id", ingredienteIds);
+
+  if (errorInventario) throw errorInventario;
+
+  const actualizaciones = (inventarioData || []).map((ingrediente: any) => {
+    const descuento = descuentos[Number(ingrediente.id)] || 0;
+    const stockActual = Number(ingrediente.stock || 0);
+
+    return supabase
+      .from("inventario")
+      .update({
+        stock: Math.max(0, Number((stockActual - descuento).toFixed(4))),
+      })
+      .eq("id", Number(ingrediente.id));
   });
 
-  localStorage.setItem(
-    "ingredientes_inventario",
-    JSON.stringify(nuevoInventario)
-  );
+  const resultados = await Promise.all(actualizaciones);
+
+  const error = resultados.find((resultado) => resultado.error)?.error;
+
+  if (error) throw error;
 };
 
 export default function VentasPage() {
@@ -249,8 +334,7 @@ export default function VentasPage() {
           .order("orden", { ascending: true });
 
       if (errorModificadores) throw errorModificadores;
-
-      const { data: productosData, error: errorProductos } = await supabase
+            const { data: productosData, error: errorProductos } = await supabase
         .from("catalogo_productos")
         .select(
           `
@@ -336,7 +420,8 @@ export default function VentasPage() {
       setCargandoCatalogo(false);
     }
   };
-    const categoriasDisponibles = useMemo(() => {
+
+  const categoriasDisponibles = useMemo(() => {
     const categorias = productosVenta
       .map((producto) => (producto as any).categoria)
       .filter(Boolean);
@@ -515,6 +600,8 @@ export default function VentasPage() {
     });
 
     try {
+      await descontarInventarioSupabasePorReceta(carrito);
+
       const { error } = await supabase.from("ventas").insert({
         folio,
         total,
@@ -528,13 +615,11 @@ export default function VentasPage() {
 
       if (error) throw error;
 
-      descontarInventarioLocalPorReceta(carrito);
-
       limpiarVenta();
       alert("Venta cobrada correctamente.");
     } catch (error) {
       console.error("Error al guardar venta:", error);
-      alert("Hubo un error al guardar la venta en Supabase.");
+      alert("Hubo un error al guardar la venta o descontar inventario.");
     }
   };
 
