@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { supabase } from "@/lib/supabase";
 import { Modificador, ModificadorTipo } from "./types";
 
 type IngredienteInventario = {
@@ -33,13 +34,7 @@ export default function ModalModificador({
   useEffect(() => {
     if (!abierto) return;
 
-    const ingredientesGuardados = JSON.parse(
-      localStorage.getItem("ingredientes_inventario") || "[]"
-    );
-
-    setIngredientes(
-      Array.isArray(ingredientesGuardados) ? ingredientesGuardados : []
-    );
+    cargarIngredientes();
 
     setNombre(modificador?.nombre || "");
     setTipo(modificador?.tipo || "Agregar");
@@ -49,6 +44,22 @@ export default function ModalModificador({
     );
     setCantidadInventario(String(modificador?.cantidadInventario ?? 1));
   }, [abierto, modificador]);
+
+  const cargarIngredientes = async () => {
+    const { data, error } = await supabase
+      .from("inventario")
+      .select("id, nombre, unidad, stock")
+      .eq("activo", true)
+      .order("nombre", { ascending: true });
+
+    if (error) {
+      console.error("Error cargando ingredientes:", error);
+      setIngredientes([]);
+      return;
+    }
+
+    setIngredientes((data || []) as IngredienteInventario[]);
+  };
 
   if (!abierto) return null;
 
