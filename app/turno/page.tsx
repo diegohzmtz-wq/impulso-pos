@@ -1,14 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { supabase } from "@/lib/supabase";
-
 import HeaderTurno from "./HeaderTurno";
 import CajaEsperada from "./CajaEsperada";
 import ResumenTurno from "./ResumenTurno";
 import CerrarTurno from "./CerrarTurno";
 
 type ProductoVenta = {
+  id?: number;
   nombre: string;
   precio: number;
   cantidad: number;
@@ -16,14 +15,21 @@ type ProductoVenta = {
 
 type Venta = {
   id: number;
-  folio?: string;
   fecha: string;
+  fechaISO?: string;
+  fechaDia?: string;
   total: number;
   metodoPago?: string;
-  metodo_pago?: string;
   productos?: ProductoVenta[];
   turnoId?: number;
-  turno_id?: number;
+  cajero?: string;
+};
+
+type UsuarioSesion = {
+  id?: number;
+  nombre?: string;
+  usuario?: string;
+  rol?: string;
 };
 
 type TurnoActivo = {
@@ -34,319 +40,740 @@ type TurnoActivo = {
   cajero: string;
 };
 
-const leerJson = <T,>(clave: string, valorDefault: T): T => {
+type CorteTurno = {
+  id: number;
+  turnoId: number;
+  cajero: string;
+  fechaApertura: string;
+  fechaCierre: string;
+  cajaInicial: number;
+  ventasEfectivo: number;
+  ventasTarjeta: number;
+  ventasTransferencia: number;
+  totalVentas: number;
+  cajaEsperada: number;
+  efectivoContado: number;
+  diferencia: number;
+  cantidadVentas: number;
+  estado: "cerrado";
+};
+
+const leerLocalStorage = <T,>(clave: string, valorInicial: T): T => {
+  if (typeof window === "undefined") {
+    return valorInicial;
+  }
+
   try {
-    if (typeof window === "undefined") return valorDefault;
+    const valorGuardado = localStorage.getItem(clave);
 
-    const data = localStorage.getItem(clave);
-    if (!data) return valorDefault;
+    if (!valorGuardado) {
+      return valorInicial;
+    }
 
-    return JSON.parse(data) as T;
-  } catch {
-    return valorDefault;
+    return JSON.parse(valorGuardado) as T;
+  } catch (error) {
+    console.error(`Error al leer ${clave}:`, error);
+    return valorInicial;
   }
 };
 
-const obtenerMetodoPago = (venta: Venta) => {
-  return venta.metodo_pago || venta.metodoPago || "Efectivo";
-};
-
-const convertirVenta = (venta: any): Venta => {
-  return {
-    id: Number(venta.id),
-    folio: venta.folio || "",
-    fecha: venta.fecha || venta.created_at || "",
-    total: Number(venta.total || 0),
-    metodoPago: venta.metodo_pago || "Efectivo",
-    metodo_pago: venta.metodo_pago || "Efectivo",
-    productos: Array.isArray(venta.productos) ? venta.productos : [],
-    turnoId: Number(venta.turno_id || 0),
-    turno_id: Number(venta.turno_id || 0),
-  };
+const normalizarMetodoPago = (metodoPago?: string) => {
+  return String(metodoPago || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
 };
 
 export default function TurnoPage() {
+  const [cargando, setCargando] = useState(true);
+  const [turnoActivo, setTurnoActivo] = useState<TurnoActivo | null>(null);
   const [ventas, setVentas] = useState<Venta[]>([]);
   const [cajaInicial, setCajaInicial] = useState("");
-  const [cajero, setCajero] = useState("Juan");
-  const [turnoAbierto, setTurnoAbierto] = useState(false);
-  const [turnoActivo, setTurnoActivo] = useState<TurnoActivo | null>(null);
-  const [cargandoVentas, setCargandoVentas] = useState(false);
+  const [efectivoContado, setEfectivoContado] = useState("");
+  const [cajero, setCajero] = useState("Cajero");
+  const [actualizacion, setActualizacion] = useState(0);
 
-  const cargarVentasTurno = async (turnoId: number) => {
-    try {
-      setCargandoVentas(true);
+  const cargarInformacion = () => {
+    const sesion = leerLocalStorage<UsuarioSesion | null>(
+      "usuario_sesion",
+      null
+    );
 
-      const { data, error } = await supabase
-        .from("ventas")
-        .select("*")
-        .eq("turno_id", turnoId)
-        .order("id", { ascending: false });
-
-      if (error) throw error;
-
-      setVentas((data || []).map(convertirVenta));
-    } catch (error) {
-      console.error("Error cargando ventas del turno:", error);
-      setVentas([]);
-    } finally {
-      setCargandoVentas(false);
-    }
-  };
-
-  const cargarTurno = () => {
     const turnoGuardado =
-      leerJson<TurnoActivo | null>("turnoActivo", null) ||
-      leerJson<TurnoActivo | null>("turno_activo", null);
+      leerLocalStorage<TurnoActivo | null>("turnoActivo", null) ||
+      leerLocalStorage<TurnoActivo | null>("turno_activo", null);
+
+    const ventasGuardadas = leerLocalStorage<Venta[]>("ventas", []);
+
+    const nombreCajero =
+      sesion?.nombre ||
+      sesion?.usuario ||
+      turnoGuardado?.cajero ||
+      "Cajero";
+
+    setCajero(nombreCajero);
 
     if (turnoGuardado?.estado === "abierto") {
-      setTurnoAbierto(true);
-      setTurnoActivo(turnoGuardado);
-      setCajaInicial(String(turnoGuardado.cajaInicial || ""));
-      setCajero(turnoGuardado.cajero || "Juan");
-      cargarVentasTurno(Number(turnoGuardado.id));
-      return;
+      setTurnoActivo({
+        id: Number(turnoGuardado.id),
+        fechaApertura: turnoGuardado.fechaApertura,
+        cajaInicial: Number(turnoGuardado.cajaInicial || 0),
+        estado: "abierto",
+        cajero: turnoGuardado.cajero || nombreCajero,
+      });
+    } else {
+      setTurnoActivo(null);
     }
 
-    setVentas([]);
-    setTurnoAbierto(false);
-    setTurnoActivo(null);
+    setVentas(Array.isArray(ventasGuardadas) ? ventasGuardadas : []);
+    setCargando(false);
   };
 
   useEffect(() => {
-    cargarTurno();
-  }, []);
+    cargarInformacion();
 
-  useEffect(() => {
-    if (!turnoActivo?.id) return;
+    const intervalo = window.setInterval(() => {
+      cargarInformacion();
+    }, 2000);
 
-    cargarVentasTurno(turnoActivo.id);
+    const actualizarDesdeStorage = () => {
+      cargarInformacion();
+    };
 
-    const canal = supabase
-      .channel("turno-ventas")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "ventas" },
-        () => {
-          cargarVentasTurno(turnoActivo.id);
-        }
-      )
-      .subscribe();
+    window.addEventListener("storage", actualizarDesdeStorage);
 
     return () => {
-      supabase.removeChannel(canal);
+      window.clearInterval(intervalo);
+      window.removeEventListener("storage", actualizarDesdeStorage);
     };
-  }, [turnoActivo?.id]);
+  }, [actualizacion]);
 
-  const abrirTurno = () => {
-    const caja = Number(cajaInicial);
-
-    if (!cajaInicial.trim() || Number.isNaN(caja) || caja < 0) {
-      alert("Ingresa una caja inicial válida");
-      return;
+  const ventasDelTurno = useMemo(() => {
+    if (!turnoActivo) {
+      return [];
     }
 
-    if (!cajero.trim()) {
-      alert("Ingresa el nombre del cajero");
-      return;
-    }
+    return ventas.filter((venta) => {
+      if (venta.turnoId !== undefined && venta.turnoId !== null) {
+        return Number(venta.turnoId) === Number(turnoActivo.id);
+      }
 
-    const turno: TurnoActivo = {
-      id: Date.now(),
-      fechaApertura: new Date().toISOString(),
-      cajaInicial: caja,
-      estado: "abierto",
-      cajero: cajero.trim(),
-    };
+      const fechaVenta =
+        venta.fechaISO ||
+        venta.fecha ||
+        venta.fechaDia ||
+        "";
 
-    localStorage.setItem("turnoActivo", JSON.stringify(turno));
-    localStorage.setItem("turno_activo", JSON.stringify(turno));
+      const fechaVentaNumero = new Date(fechaVenta).getTime();
+      const fechaAperturaNumero = new Date(
+        turnoActivo.fechaApertura
+      ).getTime();
 
-    setVentas([]);
-    setTurnoActivo(turno);
-    setTurnoAbierto(true);
-    setCajaInicial(String(caja));
+      if (
+        Number.isNaN(fechaVentaNumero) ||
+        Number.isNaN(fechaAperturaNumero)
+      ) {
+        return false;
+      }
 
-    alert("Turno abierto correctamente");
-  };
-    const totalVentas = useMemo(() => {
-    return ventas.reduce((sum, venta) => sum + Number(venta.total || 0), 0);
-  }, [ventas]);
+      return fechaVentaNumero >= fechaAperturaNumero;
+    });
+  }, [ventas, turnoActivo]);
+
+  const totalVentas = useMemo(() => {
+    return ventasDelTurno.reduce((acumulado, venta) => {
+      return acumulado + Number(venta.total || 0);
+    }, 0);
+  }, [ventasDelTurno]);
 
   const ventasEfectivo = useMemo(() => {
-    return ventas
-      .filter((venta) => obtenerMetodoPago(venta) === "Efectivo")
-      .reduce((sum, venta) => sum + Number(venta.total || 0), 0);
-  }, [ventas]);
+    return ventasDelTurno
+      .filter((venta) => {
+        const metodo = normalizarMetodoPago(venta.metodoPago);
+        return metodo === "efectivo";
+      })
+      .reduce((acumulado, venta) => {
+        return acumulado + Number(venta.total || 0);
+      }, 0);
+  }, [ventasDelTurno]);
 
   const ventasTarjeta = useMemo(() => {
-    return ventas
+    return ventasDelTurno
       .filter((venta) => {
-        const metodo = obtenerMetodoPago(venta);
+        const metodo = normalizarMetodoPago(venta.metodoPago);
+
         return (
-          metodo === "Tarjeta" ||
-          metodo === "Tarjeta crédito" ||
-          metodo === "Tarjeta débito"
+          metodo === "tarjeta" ||
+          metodo === "tarjeta credito" ||
+          metodo === "tarjeta debito" ||
+          metodo.includes("tarjeta")
         );
       })
-      .reduce((sum, venta) => sum + Number(venta.total || 0), 0);
-  }, [ventas]);
+      .reduce((acumulado, venta) => {
+        return acumulado + Number(venta.total || 0);
+      }, 0);
+  }, [ventasDelTurno]);
 
   const ventasTransferencia = useMemo(() => {
-    return ventas
-      .filter((venta) => obtenerMetodoPago(venta) === "Transferencia")
-      .reduce((sum, venta) => sum + Number(venta.total || 0), 0);
-  }, [ventas]);
+    return ventasDelTurno
+      .filter((venta) => {
+        const metodo = normalizarMetodoPago(venta.metodoPago);
 
-  const productosVendidos = useMemo(() => {
-    return ventas.reduce(
-      (sum, venta) =>
-        sum +
-        (venta.productos || []).reduce(
-          (sub, producto) => sub + Number(producto.cantidad || 0),
-          0
-        ),
-      0
+        return (
+          metodo === "transferencia" ||
+          metodo.includes("transferencia")
+        );
+      })
+      .reduce((acumulado, venta) => {
+        return acumulado + Number(venta.total || 0);
+      }, 0);
+  }, [ventasDelTurno]);
+
+  const cajaEsperada = useMemo(() => {
+    return Number(turnoActivo?.cajaInicial || 0) + ventasEfectivo;
+  }, [turnoActivo, ventasEfectivo]);
+
+  const diferencia = useMemo(() => {
+    if (efectivoContado.trim() === "") {
+      return 0;
+    }
+
+    return Number(efectivoContado || 0) - cajaEsperada;
+  }, [efectivoContado, cajaEsperada]);
+
+  const abrirTurno = () => {
+    if (turnoActivo) {
+      alert("Ya existe un turno abierto.");
+      return;
+    }
+
+    const cajaInicialNumero = Number(cajaInicial);
+
+    if (cajaInicial.trim() === "") {
+      alert("Escribe la cantidad inicial de la caja.");
+      return;
+    }
+
+    if (
+      Number.isNaN(cajaInicialNumero) ||
+      cajaInicialNumero < 0
+    ) {
+      alert("La caja inicial debe ser una cantidad válida.");
+      return;
+    }
+
+    const sesion = leerLocalStorage<UsuarioSesion | null>(
+      "usuario_sesion",
+      null
     );
-  }, [ventas]);
 
-  const cerrarTurnoReal = () => {
-    if (!turnoActivo) return;
+    const nombreCajero =
+      sesion?.nombre ||
+      sesion?.usuario ||
+      cajero ||
+      "Cajero";
 
-    const confirmar = confirm(
-      "¿Cerrar turno? Se guardará el corte y el turno volverá a cero."
+    const nuevoTurno: TurnoActivo = {
+      id: Date.now(),
+      fechaApertura: new Date().toISOString(),
+      cajaInicial: cajaInicialNumero,
+      estado: "abierto",
+      cajero: nombreCajero,
+    };
+
+    localStorage.setItem(
+      "turnoActivo",
+      JSON.stringify(nuevoTurno)
     );
 
-    if (!confirmar) return;
+    localStorage.setItem(
+      "turno_activo",
+      JSON.stringify(nuevoTurno)
+    );
 
-    const corte = {
+    setTurnoActivo(nuevoTurno);
+    setCajaInicial("");
+    setEfectivoContado("");
+    setActualizacion((valor) => valor + 1);
+
+    alert("Turno abierto correctamente.");
+  };
+    const cerrarTurno = () => {
+    if (!turnoActivo) {
+      alert("No existe un turno abierto.");
+      return;
+    }
+
+    if (efectivoContado.trim() === "") {
+      alert("Escribe cuánto efectivo contaste en la caja.");
+      return;
+    }
+
+    const efectivoContadoNumero = Number(efectivoContado);
+
+    if (
+      Number.isNaN(efectivoContadoNumero) ||
+      efectivoContadoNumero < 0
+    ) {
+      alert("El efectivo contado debe ser una cantidad válida.");
+      return;
+    }
+
+    const confirmarCierre = window.confirm(
+      `¿Seguro que deseas cerrar el turno?\n\n` +
+        `Caja esperada: $${cajaEsperada.toFixed(2)}\n` +
+        `Efectivo contado: $${efectivoContadoNumero.toFixed(2)}\n` +
+        `Diferencia: $${(
+          efectivoContadoNumero - cajaEsperada
+        ).toFixed(2)}`
+    );
+
+    if (!confirmarCierre) {
+      return;
+    }
+
+    const nuevoCorte: CorteTurno = {
       id: Date.now(),
       turnoId: turnoActivo.id,
       cajero: turnoActivo.cajero,
       fechaApertura: turnoActivo.fechaApertura,
       fechaCierre: new Date().toISOString(),
-      cajaInicial: Number(cajaInicial || 0),
-      totalVentas,
+      cajaInicial: turnoActivo.cajaInicial,
       ventasEfectivo,
       ventasTarjeta,
       ventasTransferencia,
-      cajaEsperada: Number(cajaInicial || 0) + ventasEfectivo,
-      numeroVentas: ventas.length,
-      productosVendidos,
-      ventas,
+      totalVentas,
+      cajaEsperada,
+      efectivoContado: efectivoContadoNumero,
+      diferencia: efectivoContadoNumero - cajaEsperada,
+      cantidadVentas: ventasDelTurno.length,
       estado: "cerrado",
     };
 
-    const cortesGuardados = leerJson<any[]>("cortes", []);
+    const cortesGuardados = leerLocalStorage<CorteTurno[]>(
+      "cortes_turno",
+      []
+    );
 
-    localStorage.setItem("cortes", JSON.stringify([corte, ...cortesGuardados]));
+    const cortesActualizados = [
+      nuevoCorte,
+      ...(Array.isArray(cortesGuardados)
+        ? cortesGuardados
+        : []),
+    ];
+
+    localStorage.setItem(
+      "cortes_turno",
+      JSON.stringify(cortesActualizados)
+    );
+
+    localStorage.setItem(
+      "ultimo_corte_turno",
+      JSON.stringify(nuevoCorte)
+    );
+
     localStorage.removeItem("turnoActivo");
     localStorage.removeItem("turno_activo");
 
-    setVentas([]);
-    setCajaInicial("");
     setTurnoActivo(null);
-    setTurnoAbierto(false);
+    setCajaInicial("");
+    setEfectivoContado("");
+    setActualizacion((valor) => valor + 1);
 
-    alert("Turno cerrado correctamente");
+    alert("Turno cerrado correctamente.");
   };
 
-  return (
-    <main className="min-h-screen bg-[#F3F8F2] text-gray-900">
-      <HeaderTurno turnoAbierto={turnoAbierto} />
+  const formatearDinero = (cantidad: number) => {
+    return new Intl.NumberFormat("es-MX", {
+      style: "currency",
+      currency: "MXN",
+    }).format(Number(cantidad || 0));
+  };
 
-      <section className="space-y-8 p-8">
-        {!turnoAbierto ? (
-          <div className="max-w-xl rounded-3xl bg-white p-8 shadow">
-            <h2 className="mb-2 text-2xl font-black">Abrir turno</h2>
+  const formatearFecha = (fecha?: string) => {
+    if (!fecha) {
+      return "Sin fecha";
+    }
 
-            <p className="mb-6 text-gray-500">
-              Abre turno para permitir cobros en ventas.
+    const fechaConvertida = new Date(fecha);
+
+    if (Number.isNaN(fechaConvertida.getTime())) {
+      return fecha;
+    }
+
+    return fechaConvertida.toLocaleString("es-MX", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+  };
+
+  const HeaderTurnoComponente = HeaderTurno as any;
+  const CajaEsperadaComponente = CajaEsperada as any;
+  const ResumenTurnoComponente = ResumenTurno as any;
+  const CerrarTurnoComponente = CerrarTurno as any;
+
+  if (cargando) {
+    return (
+      <main className="min-h-screen bg-slate-100 p-6">
+        <div className="mx-auto flex min-h-[70vh] max-w-7xl items-center justify-center">
+          <div className="rounded-3xl border border-slate-200 bg-white px-10 py-8 text-center shadow-sm">
+            <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-emerald-500" />
+
+            <p className="font-semibold text-slate-700">
+              Cargando información del turno...
             </p>
-
-            <label className="mb-2 block text-sm font-black text-gray-700">
-              Cajero
-            </label>
-
-            <input
-              value={cajero}
-              onChange={(e) => setCajero(e.target.value)}
-              placeholder="Nombre del cajero"
-              className="mb-5 w-full rounded-2xl border border-gray-300 px-5 py-4 text-gray-900 outline-none focus:border-green-500"
-            />
-
-            <label className="mb-2 block text-sm font-black text-gray-700">
-              Caja inicial
-            </label>
-
-            <input
-              type="text"
-              inputMode="decimal"
-              value={cajaInicial}
-              onChange={(e) => {
-                const valor = e.target.value.replace(/[^0-9.]/g, "");
-                setCajaInicial(valor);
-              }}
-              placeholder="Caja inicial"
-              className="w-full rounded-2xl border border-gray-300 px-5 py-4 text-gray-900 outline-none focus:border-green-500"
-            />
-
-            <button
-              type="button"
-              onClick={abrirTurno}
-              className="mt-6 w-full rounded-2xl bg-green-600 py-4 font-black text-white hover:bg-green-700"
-            >
-              Abrir turno
-            </button>
           </div>
-        ) : (
-          <>
-            <div className="rounded-3xl bg-white p-6 shadow">
-              <p className="text-sm font-bold text-gray-500">Turno activo</p>
+        </div>
+      </main>
+    );
+  }
 
-              <h2 className="text-2xl font-black">
-                Cajero: {turnoActivo?.cajero}
-              </h2>
+  return (
+    <main className="min-h-screen bg-slate-100">
+      <HeaderTurnoComponente
+        turnoActivo={turnoActivo}
+        cajero={turnoActivo?.cajero || cajero}
+        fechaApertura={turnoActivo?.fechaApertura}
+        totalVentas={totalVentas}
+        cantidadVentas={ventasDelTurno.length}
+      />
 
-              <p className="mt-1 text-gray-500">
-                Apertura:{" "}
-                {turnoActivo?.fechaApertura
-                  ? new Date(turnoActivo.fechaApertura).toLocaleString("es-MX")
-                  : ""}
+      <div className="mx-auto max-w-7xl space-y-6 p-4 sm:p-6 lg:p-8">
+        {!turnoActivo ? (
+          <section className="overflow-hidden rounded-[32px] border border-slate-200 bg-white shadow-sm">
+            <div className="bg-gradient-to-r from-slate-950 via-slate-900 to-emerald-950 px-6 py-8 text-white sm:px-10">
+              <span className="inline-flex rounded-full border border-white/20 bg-white/10 px-4 py-1.5 text-xs font-bold uppercase tracking-[0.2em] text-emerald-100">
+                Apertura de caja
+              </span>
+
+              <h1 className="mt-4 text-3xl font-black sm:text-4xl">
+                Iniciar nuevo turno
+              </h1>
+
+              <p className="mt-2 max-w-2xl text-sm text-slate-300 sm:text-base">
+                Registra el efectivo inicial de la caja antes de
+                comenzar a realizar ventas.
               </p>
-
-              {cargandoVentas && (
-                <p className="mt-2 text-sm font-bold text-gray-400">
-                  Cargando ventas desde Supabase...
-                </p>
-              )}
             </div>
 
-            <CajaEsperada
-              cajaInicial={Number(cajaInicial)}
+            <div className="grid gap-8 p-6 sm:p-10 lg:grid-cols-[1fr_380px]">
+              <div>
+                <label
+                  htmlFor="cajaInicial"
+                  className="mb-3 block text-sm font-bold text-slate-700"
+                >
+                  Efectivo inicial
+                </label>
+
+                <div className="relative">
+                  <span className="pointer-events-none absolute left-5 top-1/2 -translate-y-1/2 text-2xl font-black text-slate-400">
+                    $
+                  </span>
+
+                  <input
+                    id="cajaInicial"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    inputMode="decimal"
+                    value={cajaInicial}
+                    onChange={(evento) =>
+                      setCajaInicial(evento.target.value)
+                    }
+                    onKeyDown={(evento) => {
+                      if (evento.key === "Enter") {
+                        abrirTurno();
+                      }
+                    }}
+                    placeholder="0.00"
+                    className="h-20 w-full rounded-2xl border-2 border-slate-200 bg-slate-50 pl-12 pr-5 text-3xl font-black text-slate-900 outline-none transition focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-100"
+                  />
+                </div>
+
+                <p className="mt-3 text-sm text-slate-500">
+                  Esta cantidad será utilizada para calcular la caja
+                  esperada al finalizar el turno.
+                </p>
+
+                <button
+                  type="button"
+                  onClick={abrirTurno}
+                  className="mt-7 flex h-14 w-full items-center justify-center rounded-2xl bg-emerald-500 px-6 text-base font-black text-white shadow-lg shadow-emerald-500/20 transition hover:bg-emerald-600 active:scale-[0.99]"
+                >
+                  Abrir turno
+                </button>
+              </div>
+
+              <aside className="rounded-3xl border border-slate-200 bg-slate-50 p-6">
+                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-100 text-3xl">
+                  💵
+                </div>
+
+                <h2 className="mt-5 text-xl font-black text-slate-900">
+                  Información del cajero
+                </h2>
+
+                <div className="mt-5 space-y-4">
+                  <div className="rounded-2xl bg-white p-4">
+                    <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
+                      Cajero
+                    </p>
+
+                    <p className="mt-1 text-lg font-black text-slate-800">
+                      {cajero}
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl bg-white p-4">
+                    <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
+                      Fecha
+                    </p>
+
+                    <p className="mt-1 font-bold text-slate-800">
+                      {new Date().toLocaleDateString("es-MX", {
+                        weekday: "long",
+                        day: "numeric",
+                        month: "long",
+                        year: "numeric",
+                      })}
+                    </p>
+                  </div>
+                </div>
+              </aside>
+            </div>
+          </section>
+        ) : (
+          <>
+            <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <article className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                <p className="text-sm font-bold text-slate-500">
+                  Caja inicial
+                </p>
+
+                <p className="mt-3 text-3xl font-black text-slate-900">
+                  {formatearDinero(turnoActivo.cajaInicial)}
+                </p>
+
+                <p className="mt-2 text-xs text-slate-400">
+                  Registrada al abrir
+                </p>
+              </article>
+
+              <article className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                <p className="text-sm font-bold text-slate-500">
+                  Ventas del turno
+                </p>
+
+                <p className="mt-3 text-3xl font-black text-slate-900">
+                  {formatearDinero(totalVentas)}
+                </p>
+
+                <p className="mt-2 text-xs text-slate-400">
+                  {ventasDelTurno.length} venta
+                  {ventasDelTurno.length === 1 ? "" : "s"}
+                </p>
+              </article>
+
+              <article className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                <p className="text-sm font-bold text-slate-500">
+                  Ventas en efectivo
+                </p>
+
+                <p className="mt-3 text-3xl font-black text-emerald-600">
+                  {formatearDinero(ventasEfectivo)}
+                </p>
+
+                <p className="mt-2 text-xs text-slate-400">
+                  Se suma a la caja
+                </p>
+              </article>
+
+              <article className="rounded-3xl border border-emerald-200 bg-emerald-50 p-6 shadow-sm">
+                <p className="text-sm font-bold text-emerald-700">
+                  Caja esperada
+                </p>
+
+                <p className="mt-3 text-3xl font-black text-emerald-700">
+                  {formatearDinero(cajaEsperada)}
+                </p>
+
+                <p className="mt-2 text-xs text-emerald-600">
+                  Inicial + efectivo
+                </p>
+              </article>
+            </section>
+
+            <CajaEsperadaComponente
+              cajaInicial={turnoActivo.cajaInicial}
               ventasEfectivo={ventasEfectivo}
+              cajaEsperada={cajaEsperada}
+              total={cajaEsperada}
             />
 
-            <ResumenTurno
+            <ResumenTurnoComponente
+              ventas={ventasDelTurno}
+              cantidadVentas={ventasDelTurno.length}
               totalVentas={totalVentas}
               ventasEfectivo={ventasEfectivo}
+              efectivo={ventasEfectivo}
               ventasTarjeta={ventasTarjeta}
+              tarjeta={ventasTarjeta}
               ventasTransferencia={ventasTransferencia}
-              numeroVentas={ventas.length}
+              transferencia={ventasTransferencia}
             />
 
-            <CerrarTurno
-              cajaInicial={Number(cajaInicial)}
-              totalVentas={totalVentas}
-              ventasEfectivo={ventasEfectivo}
-              ventasTarjeta={ventasTarjeta}
-              ventasTransferencia={ventasTransferencia}
-              numeroVentas={ventas.length}
-              onCerrar={cerrarTurnoReal}
+            <section className="grid gap-6 xl:grid-cols-[1fr_420px]">
+              <article className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+                <div className="flex flex-col gap-4 border-b border-slate-100 pb-6 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-sm font-bold text-emerald-600">
+                      Turno activo
+                    </p>
+
+                    <h2 className="mt-1 text-2xl font-black text-slate-900">
+                      Información de apertura
+                    </h2>
+                  </div>
+
+                  <span className="w-fit rounded-full bg-emerald-100 px-4 py-2 text-xs font-black uppercase tracking-wide text-emerald-700">
+                    Abierto
+                  </span>
+                </div>
+
+                <div className="mt-6 grid gap-4 sm:grid-cols-2">
+                  <div className="rounded-2xl bg-slate-50 p-5">
+                    <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
+                      Cajero
+                    </p>
+
+                    <p className="mt-2 text-lg font-black text-slate-800">
+                      {turnoActivo.cajero}
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl bg-slate-50 p-5">
+                    <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
+                      Apertura
+                    </p>
+
+                    <p className="mt-2 font-black text-slate-800">
+                      {formatearFecha(turnoActivo.fechaApertura)}
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl bg-slate-50 p-5">
+                    <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
+                      Tarjeta
+                    </p>
+
+                    <p className="mt-2 text-xl font-black text-slate-800">
+                      {formatearDinero(ventasTarjeta)}
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl bg-slate-50 p-5">
+                    <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
+                      Transferencia
+                    </p>
+
+                    <p className="mt-2 text-xl font-black text-slate-800">
+                      {formatearDinero(
+                        ventasTransferencia
+                      )}
+                    </p>
+                  </div>
+                </div>
+              </article>
+
+              <article className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+                <h2 className="text-2xl font-black text-slate-900">
+                  Cerrar turno
+                </h2>
+
+                <p className="mt-2 text-sm text-slate-500">
+                  Cuenta el dinero físico disponible dentro de la caja.
+                </p>
+
+                <label
+                  htmlFor="efectivoContado"
+                  className="mb-3 mt-7 block text-sm font-bold text-slate-700"
+                >
+                  Efectivo contado
+                </label>
+
+                <div className="relative">
+                  <span className="pointer-events-none absolute left-5 top-1/2 -translate-y-1/2 text-xl font-black text-slate-400">
+                    $
+                  </span>
+
+                  <input
+                    id="efectivoContado"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    inputMode="decimal"
+                    value={efectivoContado}
+                    onChange={(evento) =>
+                      setEfectivoContado(evento.target.value)
+                    }
+                    placeholder="0.00"
+                    className="h-16 w-full rounded-2xl border-2 border-slate-200 bg-slate-50 pl-11 pr-5 text-2xl font-black text-slate-900 outline-none transition focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-100"
+                  />
+                </div>
+
+                <div className="mt-5 space-y-3 rounded-2xl bg-slate-50 p-5">
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="text-sm font-semibold text-slate-500">
+                      Caja esperada
+                    </span>
+
+                    <span className="font-black text-slate-900">
+                      {formatearDinero(cajaEsperada)}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="text-sm font-semibold text-slate-500">
+                      Diferencia
+                    </span>
+
+                    <span
+                      className={`font-black ${
+                        diferencia === 0
+                          ? "text-slate-900"
+                          : diferencia > 0
+                          ? "text-emerald-600"
+                          : "text-red-600"
+                      }`}
+                    >
+                      {formatearDinero(diferencia)}
+                    </span>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={cerrarTurno}
+                  className="mt-6 flex h-14 w-full items-center justify-center rounded-2xl bg-slate-950 px-6 font-black text-white transition hover:bg-red-600 active:scale-[0.99]"
+                >
+                  Cerrar y guardar corte
+                </button>
+              </article>
+            </section>
+
+            <CerrarTurnoComponente
+              turnoActivo={turnoActivo}
+              efectivoContado={efectivoContado}
+              setEfectivoContado={setEfectivoContado}
+              cajaEsperada={cajaEsperada}
+              diferencia={diferencia}
+              onCerrarTurno={cerrarTurno}
+              cerrarTurno={cerrarTurno}
             />
           </>
         )}
-      </section>
+      </div>
     </main>
   );
 }
