@@ -601,17 +601,17 @@ export default function VentasPage() {
 
     try {
       await descontarInventarioSupabasePorReceta(carrito);
-
-      const { error } = await supabase.from("ventas").insert({
-        folio,
-        total,
-        metodo_pago: metodoPago,
-        productos: productosParaGuardar,
-        telefono,
-        fecha: fechaActual,
-        estado: "Pagada",
-        estado_cocina: "Pendiente",
-      });
+const { error } = await supabase.from("ventas").insert({
+  folio,
+  total,
+  metodo_pago: metodoPago,
+  productos: productosParaGuardar,
+  telefono,
+  fecha: fechaActual,
+  estado: "Pagada",
+  estado_cocina: "Pendiente",
+  turno_id: turnoActivo.id,
+});
 
       if (error) throw error;
 

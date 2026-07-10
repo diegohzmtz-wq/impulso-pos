@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { supabase } from "@/lib/supabase";
+
 import HeaderTurno from "./HeaderTurno";
 import CajaEsperada from "./CajaEsperada";
 import ResumenTurno from "./ResumenTurno";
@@ -14,11 +16,14 @@ type ProductoVenta = {
 
 type Venta = {
   id: number;
+  folio?: string;
   fecha: string;
   total: number;
   metodoPago?: string;
+  metodo_pago?: string;
   productos?: ProductoVenta[];
   turnoId?: number;
+  turno_id?: number;
 };
 
 type TurnoActivo = {
@@ -29,48 +34,109 @@ type TurnoActivo = {
   cajero: string;
 };
 
+const leerJson = <T,>(clave: string, valorDefault: T): T => {
+  try {
+    if (typeof window === "undefined") return valorDefault;
+
+    const data = localStorage.getItem(clave);
+    if (!data) return valorDefault;
+
+    return JSON.parse(data) as T;
+  } catch {
+    return valorDefault;
+  }
+};
+
+const obtenerMetodoPago = (venta: Venta) => {
+  return venta.metodo_pago || venta.metodoPago || "Efectivo";
+};
+
+const convertirVenta = (venta: any): Venta => {
+  return {
+    id: Number(venta.id),
+    folio: venta.folio || "",
+    fecha: venta.fecha || venta.created_at || "",
+    total: Number(venta.total || 0),
+    metodoPago: venta.metodo_pago || "Efectivo",
+    metodo_pago: venta.metodo_pago || "Efectivo",
+    productos: Array.isArray(venta.productos) ? venta.productos : [],
+    turnoId: Number(venta.turno_id || 0),
+    turno_id: Number(venta.turno_id || 0),
+  };
+};
+
 export default function TurnoPage() {
   const [ventas, setVentas] = useState<Venta[]>([]);
   const [cajaInicial, setCajaInicial] = useState("");
   const [cajero, setCajero] = useState("Juan");
   const [turnoAbierto, setTurnoAbierto] = useState(false);
   const [turnoActivo, setTurnoActivo] = useState<TurnoActivo | null>(null);
+  const [cargandoVentas, setCargandoVentas] = useState(false);
+
+  const cargarVentasTurno = async (turnoId: number) => {
+    try {
+      setCargandoVentas(true);
+
+      const { data, error } = await supabase
+        .from("ventas")
+        .select("*")
+        .eq("turno_id", turnoId)
+        .order("id", { ascending: false });
+
+      if (error) throw error;
+
+      setVentas((data || []).map(convertirVenta));
+    } catch (error) {
+      console.error("Error cargando ventas del turno:", error);
+      setVentas([]);
+    } finally {
+      setCargandoVentas(false);
+    }
+  };
 
   const cargarTurno = () => {
-    try {
-      const turnoGuardado = JSON.parse(
-        localStorage.getItem("turnoActivo") || "null"
-      );
+    const turnoGuardado =
+      leerJson<TurnoActivo | null>("turnoActivo", null) ||
+      leerJson<TurnoActivo | null>("turno_activo", null);
 
-      const ventasTurno = JSON.parse(
-        localStorage.getItem("turno_ventas") || "[]"
-      );
-
-      setVentas(Array.isArray(ventasTurno) ? ventasTurno : []);
-
-      if (turnoGuardado?.estado === "abierto") {
-        setTurnoAbierto(true);
-        setTurnoActivo(turnoGuardado);
-        setCajaInicial(String(turnoGuardado.cajaInicial || ""));
-        setCajero(turnoGuardado.cajero || "Juan");
-      } else {
-        setTurnoAbierto(false);
-        setTurnoActivo(null);
-      }
-    } catch {
-      setVentas([]);
-      setTurnoAbierto(false);
-      setTurnoActivo(null);
+    if (turnoGuardado?.estado === "abierto") {
+      setTurnoAbierto(true);
+      setTurnoActivo(turnoGuardado);
+      setCajaInicial(String(turnoGuardado.cajaInicial || ""));
+      setCajero(turnoGuardado.cajero || "Juan");
+      cargarVentasTurno(Number(turnoGuardado.id));
+      return;
     }
+
+    setVentas([]);
+    setTurnoAbierto(false);
+    setTurnoActivo(null);
   };
 
   useEffect(() => {
     cargarTurno();
-
-    const intervalo = setInterval(cargarTurno, 1500);
-
-    return () => clearInterval(intervalo);
   }, []);
+
+  useEffect(() => {
+    if (!turnoActivo?.id) return;
+
+    cargarVentasTurno(turnoActivo.id);
+
+    const canal = supabase
+      .channel("turno-ventas")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "ventas" },
+        () => {
+          cargarVentasTurno(turnoActivo.id);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(canal);
+    };
+  }, [turnoActivo?.id]);
 
   const abrirTurno = () => {
     const caja = Number(cajaInicial);
@@ -87,7 +153,7 @@ export default function TurnoPage() {
 
     const turno: TurnoActivo = {
       id: Date.now(),
-      fechaApertura: new Date().toLocaleString("es-MX"),
+      fechaApertura: new Date().toISOString(),
       cajaInicial: caja,
       estado: "abierto",
       cajero: cajero.trim(),
@@ -95,7 +161,6 @@ export default function TurnoPage() {
 
     localStorage.setItem("turnoActivo", JSON.stringify(turno));
     localStorage.setItem("turno_activo", JSON.stringify(turno));
-    localStorage.setItem("turno_ventas", JSON.stringify([]));
 
     setVentas([]);
     setTurnoActivo(turno);
@@ -104,31 +169,32 @@ export default function TurnoPage() {
 
     alert("Turno abierto correctamente");
   };
-
-  const totalVentas = useMemo(() => {
+    const totalVentas = useMemo(() => {
     return ventas.reduce((sum, venta) => sum + Number(venta.total || 0), 0);
   }, [ventas]);
 
   const ventasEfectivo = useMemo(() => {
     return ventas
-      .filter((venta) => venta.metodoPago === "Efectivo")
+      .filter((venta) => obtenerMetodoPago(venta) === "Efectivo")
       .reduce((sum, venta) => sum + Number(venta.total || 0), 0);
   }, [ventas]);
 
   const ventasTarjeta = useMemo(() => {
     return ventas
-      .filter(
-        (venta) =>
-          venta.metodoPago === "Tarjeta" ||
-          venta.metodoPago === "Tarjeta crédito" ||
-          venta.metodoPago === "Tarjeta débito"
-      )
+      .filter((venta) => {
+        const metodo = obtenerMetodoPago(venta);
+        return (
+          metodo === "Tarjeta" ||
+          metodo === "Tarjeta crédito" ||
+          metodo === "Tarjeta débito"
+        );
+      })
       .reduce((sum, venta) => sum + Number(venta.total || 0), 0);
   }, [ventas]);
 
   const ventasTransferencia = useMemo(() => {
     return ventas
-      .filter((venta) => venta.metodoPago === "Transferencia")
+      .filter((venta) => obtenerMetodoPago(venta) === "Transferencia")
       .reduce((sum, venta) => sum + Number(venta.total || 0), 0);
   }, [ventas]);
 
@@ -158,7 +224,7 @@ export default function TurnoPage() {
       turnoId: turnoActivo.id,
       cajero: turnoActivo.cajero,
       fechaApertura: turnoActivo.fechaApertura,
-      fechaCierre: new Date().toLocaleString("es-MX"),
+      fechaCierre: new Date().toISOString(),
       cajaInicial: Number(cajaInicial || 0),
       totalVentas,
       ventasEfectivo,
@@ -171,12 +237,11 @@ export default function TurnoPage() {
       estado: "cerrado",
     };
 
-    const cortesGuardados = JSON.parse(localStorage.getItem("cortes") || "[]");
+    const cortesGuardados = leerJson<any[]>("cortes", []);
 
     localStorage.setItem("cortes", JSON.stringify([corte, ...cortesGuardados]));
     localStorage.removeItem("turnoActivo");
     localStorage.removeItem("turno_activo");
-    localStorage.setItem("turno_ventas", JSON.stringify([]));
 
     setVentas([]);
     setCajaInicial("");
@@ -202,6 +267,7 @@ export default function TurnoPage() {
             <label className="mb-2 block text-sm font-black text-gray-700">
               Cajero
             </label>
+
             <input
               value={cajero}
               onChange={(e) => setCajero(e.target.value)}
@@ -212,6 +278,7 @@ export default function TurnoPage() {
             <label className="mb-2 block text-sm font-black text-gray-700">
               Caja inicial
             </label>
+
             <input
               type="text"
               inputMode="decimal"
@@ -236,12 +303,23 @@ export default function TurnoPage() {
           <>
             <div className="rounded-3xl bg-white p-6 shadow">
               <p className="text-sm font-bold text-gray-500">Turno activo</p>
+
               <h2 className="text-2xl font-black">
                 Cajero: {turnoActivo?.cajero}
               </h2>
+
               <p className="mt-1 text-gray-500">
-                Apertura: {turnoActivo?.fechaApertura}
+                Apertura:{" "}
+                {turnoActivo?.fechaApertura
+                  ? new Date(turnoActivo.fechaApertura).toLocaleString("es-MX")
+                  : ""}
               </p>
+
+              {cargandoVentas && (
+                <p className="mt-2 text-sm font-bold text-gray-400">
+                  Cargando ventas desde Supabase...
+                </p>
+              )}
             </div>
 
             <CajaEsperada
