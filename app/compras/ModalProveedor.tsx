@@ -6,7 +6,9 @@ import { Proveedor } from "./types";
 type Props = {
   abierto: boolean;
   onCerrar: () => void;
-  onGuardar: (proveedor: Proveedor) => void;
+  onGuardar: (
+    proveedor: Proveedor
+  ) => void | Promise<void>;
 };
 
 export default function ModalProveedor({
@@ -20,7 +22,11 @@ export default function ModalProveedor({
   const [email, setEmail] = useState("");
   const [direccion, setDireccion] = useState("");
   const [rfc, setRfc] = useState("");
-  const [observaciones, setObservaciones] = useState("");
+  const [observaciones, setObservaciones] =
+    useState("");
+
+  const [guardando, setGuardando] =
+    useState(false);
 
   useEffect(() => {
     if (!abierto) return;
@@ -32,55 +38,114 @@ export default function ModalProveedor({
     setDireccion("");
     setRfc("");
     setObservaciones("");
+    setGuardando(false);
   }, [abierto]);
 
   if (!abierto) return null;
 
-  const guardarProveedor = () => {
+  const correoValido = (correo: string) => {
+    if (!correo.trim()) return true;
+
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
+      correo.trim()
+    );
+  };
+
+  const guardarProveedor = async () => {
+    if (guardando) return;
+
     if (!nombre.trim()) {
       alert("Escribe el nombre del proveedor.");
       return;
     }
 
-    const nuevoProveedor: Proveedor = {
-      id: Date.now(),
-      nombre: nombre.trim(),
-      contacto: contacto.trim(),
-      telefono: telefono.trim(),
-      email: email.trim(),
-      direccion: direccion.trim(),
-      rfc: rfc.trim(),
-      observaciones: observaciones.trim(),
-      activo: true,
-    } as any;
+    if (!correoValido(email)) {
+      alert("Ingresa un correo electrónico válido.");
+      return;
+    }
 
-    onGuardar(nuevoProveedor);
+    setGuardando(true);
+
+    try {
+      const nuevoProveedor: Proveedor = {
+        id: 0,
+        nombre: nombre.trim(),
+        contacto: contacto.trim(),
+        telefono: telefono.trim(),
+        email: email.trim().toLowerCase(),
+        direccion: direccion.trim(),
+        rfc: rfc.trim().toUpperCase(),
+        observaciones: observaciones.trim(),
+        activo: true,
+      };
+
+      await onGuardar(nuevoProveedor);
+    } catch (error) {
+      console.error(
+        "Error al guardar proveedor:",
+        error
+      );
+
+      const mensaje =
+        error instanceof Error
+          ? error.message
+          : "No se pudo guardar el proveedor";
+
+      alert(mensaje);
+    } finally {
+      setGuardando(false);
+    }
+  };
+
+  const cerrarModal = () => {
+    if (guardando) return;
+    onCerrar();
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-6">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm md:p-6"
+      onMouseDown={(evento) => {
+        if (evento.target === evento.currentTarget) {
+          cerrarModal();
+        }
+      }}
+    >
       <div className="w-full max-w-4xl overflow-hidden rounded-[32px] bg-white shadow-2xl">
-        <div className="flex items-center justify-between border-b border-slate-200 px-7 py-6">
-          <div>
-            <h2 className="text-3xl font-black text-slate-900">
-              Nuevo proveedor
-            </h2>
-            <p className="mt-1 text-sm font-semibold text-slate-500">
-              Registra la información comercial del proveedor.
-            </p>
+        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-5 md:px-7 md:py-6">
+          <div className="flex items-center gap-4">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-green-100 text-2xl">
+              🚚
+            </div>
+
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-green-600">
+                Compras
+              </p>
+
+              <h2 className="text-2xl font-black text-slate-900 md:text-3xl">
+                Nuevo proveedor
+              </h2>
+
+              <p className="mt-1 text-sm font-semibold text-slate-500">
+                Registra la información comercial del proveedor.
+              </p>
+            </div>
           </div>
 
           <button
-            onClick={onCerrar}
-            className="rounded-2xl bg-slate-100 px-4 py-2 font-black text-slate-700 transition hover:bg-slate-200"
+            type="button"
+            onClick={cerrarModal}
+            disabled={guardando}
+            className="rounded-2xl bg-slate-100 px-4 py-2 font-black text-slate-700 transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50"
           >
             ✕
           </button>
         </div>
 
-        <div className="grid max-h-[75vh] grid-cols-1 overflow-y-auto lg:grid-cols-[1fr_280px]">
-          <div className="space-y-5 p-7">
-            <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+        <div className="grid max-h-[78vh] grid-cols-1 overflow-y-auto lg:grid-cols-[1fr_290px]">
+          <div className="space-y-5 p-6 md:p-7">
+            <div className="rounded-3xl border border-green-100 bg-green-50/50 p-5">
               <label className="mb-2 block text-sm font-black text-slate-700">
                 Nombre del proveedor *
               </label>
@@ -88,9 +153,13 @@ export default function ModalProveedor({
               <input
                 type="text"
                 value={nombre}
-                onChange={(e) => setNombre(e.target.value)}
+                onChange={(evento) =>
+                  setNombre(evento.target.value)
+                }
                 placeholder="Ej. Carnes del Norte"
-                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 font-semibold text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-green-500 focus:ring-4 focus:ring-green-100"
+                disabled={guardando}
+                autoFocus
+                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 font-semibold text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-green-500 focus:ring-4 focus:ring-green-100 disabled:cursor-not-allowed disabled:bg-slate-100"
               />
             </div>
 
@@ -103,9 +172,12 @@ export default function ModalProveedor({
                 <input
                   type="text"
                   value={contacto}
-                  onChange={(e) => setContacto(e.target.value)}
+                  onChange={(evento) =>
+                    setContacto(evento.target.value)
+                  }
                   placeholder="Ej. Juan Pérez"
-                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 font-semibold text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-green-500 focus:ring-4 focus:ring-green-100"
+                  disabled={guardando}
+                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 font-semibold text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-green-500 focus:ring-4 focus:ring-green-100 disabled:cursor-not-allowed disabled:bg-slate-100"
                 />
               </div>
 
@@ -115,11 +187,19 @@ export default function ModalProveedor({
                 </label>
 
                 <input
-                  type="text"
+                  type="tel"
                   value={telefono}
-                  onChange={(e) => setTelefono(e.target.value)}
+                  onChange={(evento) => {
+                    const valor = evento.target.value.replace(
+                      /[^0-9+\-\s()]/g,
+                      ""
+                    );
+
+                    setTelefono(valor);
+                  }}
                   placeholder="Ej. 4421234567"
-                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 font-semibold text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-green-500 focus:ring-4 focus:ring-green-100"
+                  disabled={guardando}
+                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 font-semibold text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-green-500 focus:ring-4 focus:ring-green-100 disabled:cursor-not-allowed disabled:bg-slate-100"
                 />
               </div>
 
@@ -131,9 +211,12 @@ export default function ModalProveedor({
                 <input
                   type="email"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(evento) =>
+                    setEmail(evento.target.value)
+                  }
                   placeholder="proveedor@email.com"
-                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 font-semibold text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-green-500 focus:ring-4 focus:ring-green-100"
+                  disabled={guardando}
+                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 font-semibold text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-green-500 focus:ring-4 focus:ring-green-100 disabled:cursor-not-allowed disabled:bg-slate-100"
                 />
               </div>
 
@@ -145,9 +228,17 @@ export default function ModalProveedor({
                 <input
                   type="text"
                   value={rfc}
-                  onChange={(e) => setRfc(e.target.value.toUpperCase())}
+                  maxLength={13}
+                  onChange={(evento) => {
+                    const valor = evento.target.value
+                      .toUpperCase()
+                      .replace(/[^A-Z0-9Ñ&]/g, "");
+
+                    setRfc(valor);
+                  }}
                   placeholder="Ej. XAXX010101000"
-                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 font-semibold uppercase text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-green-500 focus:ring-4 focus:ring-green-100"
+                  disabled={guardando}
+                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 font-semibold uppercase text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-green-500 focus:ring-4 focus:ring-green-100 disabled:cursor-not-allowed disabled:bg-slate-100"
                 />
               </div>
 
@@ -159,9 +250,12 @@ export default function ModalProveedor({
                 <input
                   type="text"
                   value={direccion}
-                  onChange={(e) => setDireccion(e.target.value)}
+                  onChange={(evento) =>
+                    setDireccion(evento.target.value)
+                  }
                   placeholder="Dirección del proveedor"
-                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 font-semibold text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-green-500 focus:ring-4 focus:ring-green-100"
+                  disabled={guardando}
+                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 font-semibold text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-green-500 focus:ring-4 focus:ring-green-100 disabled:cursor-not-allowed disabled:bg-slate-100"
                 />
               </div>
 
@@ -172,73 +266,104 @@ export default function ModalProveedor({
 
                 <textarea
                   value={observaciones}
-                  onChange={(e) => setObservaciones(e.target.value)}
+                  onChange={(evento) =>
+                    setObservaciones(
+                      evento.target.value
+                    )
+                  }
                   placeholder="Notas internas, condiciones de pago, horarios de entrega..."
                   rows={4}
-                  className="w-full resize-none rounded-2xl border border-slate-200 bg-white px-4 py-3 font-semibold text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-green-500 focus:ring-4 focus:ring-green-100"
+                  disabled={guardando}
+                  className="w-full resize-none rounded-2xl border border-slate-200 bg-white px-4 py-3 font-semibold text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-green-500 focus:ring-4 focus:ring-green-100 disabled:cursor-not-allowed disabled:bg-slate-100"
                 />
               </div>
             </div>
           </div>
 
-          <aside className="border-t border-slate-200 bg-slate-50 p-7 lg:border-l lg:border-t-0">
+          <aside className="border-t border-slate-200 bg-slate-50 p-6 md:p-7 lg:border-l lg:border-t-0">
             <div className="sticky top-6 space-y-5">
               <div>
                 <h3 className="text-2xl font-black text-slate-900">
                   Resumen
                 </h3>
+
                 <p className="mt-1 text-sm font-semibold text-slate-500">
-                  Información lista para guardar.
+                  Información lista para guardar en Supabase.
                 </p>
               </div>
 
               <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
                 <div className="space-y-4">
                   <div>
-                    <p className="text-xs font-black uppercase text-slate-400">
+                    <p className="text-xs font-black uppercase tracking-wide text-slate-400">
                       Proveedor
                     </p>
-                    <p className="mt-1 font-black text-slate-900">
-                      {nombre || "Sin nombre"}
+
+                    <p className="mt-1 break-words font-black text-slate-900">
+                      {nombre.trim() || "Sin nombre"}
                     </p>
                   </div>
 
                   <div>
-                    <p className="text-xs font-black uppercase text-slate-400">
+                    <p className="text-xs font-black uppercase tracking-wide text-slate-400">
                       Contacto
                     </p>
-                    <p className="mt-1 font-semibold text-slate-700">
-                      {contacto || "No agregado"}
+
+                    <p className="mt-1 break-words font-semibold text-slate-700">
+                      {contacto.trim() ||
+                        "No agregado"}
                     </p>
                   </div>
 
                   <div>
-                    <p className="text-xs font-black uppercase text-slate-400">
+                    <p className="text-xs font-black uppercase tracking-wide text-slate-400">
                       Teléfono
                     </p>
-                    <p className="mt-1 font-semibold text-slate-700">
-                      {telefono || "No agregado"}
+
+                    <p className="mt-1 break-words font-semibold text-slate-700">
+                      {telefono.trim() ||
+                        "No agregado"}
+                    </p>
+                  </div>
+
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-wide text-slate-400">
+                      Correo
+                    </p>
+
+                    <p className="mt-1 break-words font-semibold text-slate-700">
+                      {email.trim() || "No agregado"}
                     </p>
                   </div>
 
                   <div className="border-t border-slate-200 pt-4">
                     <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-black text-green-700">
-                      🟢 Activo
+                      ● Activo
                     </span>
                   </div>
                 </div>
               </div>
 
               <button
-                onClick={guardarProveedor}
-                className="w-full rounded-2xl bg-green-600 py-4 text-lg font-black text-white shadow-xl shadow-green-200 transition hover:bg-green-700"
+                type="button"
+                onClick={() =>
+                  void guardarProveedor()
+                }
+                disabled={
+                  guardando || !nombre.trim()
+                }
+                className="w-full rounded-2xl bg-green-600 py-4 text-lg font-black text-white shadow-xl shadow-green-200 transition hover:bg-green-700 disabled:cursor-not-allowed disabled:bg-slate-400 disabled:shadow-none"
               >
-                Guardar proveedor
+                {guardando
+                  ? "Guardando..."
+                  : "Guardar proveedor"}
               </button>
 
               <button
-                onClick={onCerrar}
-                className="w-full rounded-2xl border border-slate-200 bg-white py-4 font-black text-slate-700 transition hover:bg-slate-100"
+                type="button"
+                onClick={cerrarModal}
+                disabled={guardando}
+                className="w-full rounded-2xl border border-slate-200 bg-white py-4 font-black text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Cancelar
               </button>
